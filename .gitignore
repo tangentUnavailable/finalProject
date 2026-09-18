@@ -1,0 +1,44 @@
+# Build outputs
+bin/
+obj/
+CvHub/bin/
+CvHub/obj/
+CvHub.Client/bin/
+CvHub.Client/obj/
+CvHub.Shared/bin/
+CvHub.Shared/obj/
+
+# NuGet
+packages/
+*.nupkg
+
+# Node
+node_modules/
+
+# IDE/Editor
+.vs/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local database / freebuff
+.freebuff/
+
+# Cookies / test artifacts
+cookies.txt
+
+# Compiled CSS
+CvHub/wwwroot/app.css
+
+# User secrets / local config
+appsettings.Development.json
+appsettings.Local.json
+appsettings.*.local.json
+
+# Logs
+*.log
