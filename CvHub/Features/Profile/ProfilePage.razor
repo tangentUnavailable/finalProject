@@ -1,0 +1,462 @@
+@page "/profile"
+@page "/profile/u/{UserId}"
+@attribute [Authorize]
+@using CvHub.Shared
+@using CvHub.Features.Profile
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject IHttpClientFactory HttpClientFactory
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>My Profile — CvHub</PageTitle>
+
+<h1 class="mb-6 text-2xl font-bold">@I18n.T("nav.profile")</h1>
+
+@if (_conflictMsg is not null)
+{
+    <div class="mb-4 rounded-lg bg-amber-50 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+        @_conflictMsg
+    </div>
+}
+
+@if (_loading)
+{
+    <div class="text-slate-400">@I18n.T("common.loading")</div>
+}
+else
+{
+    <div class="flex items-center gap-3 mb-4">
+        @if (!string.IsNullOrEmpty(_photoUrl))
+        {
+            <img src="@_photoUrl" class="h-16 w-16 rounded-full object-cover" alt="photo" />
+        }
+        <div>
+            <div class="text-lg font-semibold">@_firstName @_lastName</div>
+            <div class="text-xs text-slate-400">@_email</div>
+        </div>
+        <span class="ml-auto inline-flex items-center gap-1.5 rounded-full bg-emerald-50 dark:bg-emerald-900/30 px-2.5 py-1 text-xs text-emerald-700 dark:text-emerald-400">
+            <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+            @(_saving ? I18n.T("profile.saving") : I18n.T("profile.autosave"))
+        </span>
+    </div>
+
+    @if (_isCandidateView)
+    {
+        <div class="mb-2 flex gap-2 border-b border-slate-200 dark:border-slate-700">
+            @foreach (var (key, label) in new[] { ("me", "profile.me"), ("info", "profile.info"), ("projects", "profile.projects"), ("cvs", "profile.cvs") })
+            {
+                var active = _tab == key;
+                <button type="button" @onclick="() => _tab = key"
+                        class="px-3 py-2 text-sm font-medium border-b-2 -mb-px @(active ? "border-brand-600 text-brand-600 dark:text-brand-400" : "border-transparent text-slate-500 hover:text-slate-700")">
+                    @I18n.T(label)
+                </button>
+            }
+        </div>
+    }
+    else
+    {
+        <p class="mb-4 text-sm text-slate-500 dark:text-slate-400">
+            @I18n.T("profile.recruiternote")
+        </p>
+    }
+
+    @if (!_isCandidateView || _tab == "me")
+    {
+        <div class="grid gap-4 sm:grid-cols-2">
+            @foreach (var f in _me_fields)
+            {
+                <AttributeEditor Field="f" ValueChanged="OnAutoSave" />
+            }
+            <div class="sm:col-span-2">
+                <AttributeEditor Field="@_me_fields.FirstOrDefault(f => f.AttributeId == _aboutId)" ValueChanged="OnAutoSave" />
+            </div>
+        </div>
+    }
+    else if (_tab == "info")
+    {
+        <div class="mb-3 max-w-md"><AttributePicker OnPicked="OnAttributePicked" /></div>
+        <div class="grid gap-4 sm:grid-cols-2">
+            @foreach (var f in _info_fields)
+            {
+                <div class="relative">
+                    <AttributeEditor Field="f" ValueChanged="OnAutoSave" />
+                    <button type="button" title="Remove from profile" @onclick="() => Unpin(f.AttributeId)"
+                            class="absolute top-0 right-0 text-slate-300 hover:text-rose-500 transition-colors">✕</button>
+                    <div class="h-6"></div>
+                    @* spacer for the remove affordance *@
+                </div>
+            }
+            @if (!_info_fields.Any())
+            {
+                <div class="text-sm text-slate-400">No attributes yet — use "@I18n.T("profile.addattr")" above.</div>
+            }
+        </div>
+    }
+    else if (_tab == "projects")
+    {
+        <button type="button" @onclick="NewProject"
+                class="mb-4 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-700">
+            + @I18n.T("profile.newproject")
+        </button>
+        <div class="space-y-4">
+            @foreach (var p in _projects)
+            {
+                <ProjectCard Project="p" OnEdit="() => EditProject(p)" OnDeleted="async () => await DeleteProject(p)" />
+            }
+            @if (!_projects.Any())
+            {
+                <div class="text-sm text-slate-400">No projects yet.</div>
+            }
+        </div>
+    }
+    else if (_isCandidateView)
+    {
+        <div class="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-slate-200 dark:border-slate-700 text-left text-xs uppercase tracking-wide text-slate-500">
+                        <th class="px-4 py-2">@I18n.T("table.title")</th>
+                        <th class="px-4 py-2">@I18n.T("table.status")</th>
+                        <th class="px-4 py-2">@I18n.T("table.updated")</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var c in _cvs)
+                    {
+                        <tr class="border-b border-slate-100 dark:border-slate-700/50 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-700/30">
+                            <td class="px-4 py-2">
+                                @if (c.Hidden)
+                                {
+                                    <span class="text-slate-400">@c.PositionTitle — @I18n.T("cv.hidden")</span>
+                                }
+                                else
+                                {
+                                    <a class="font-medium text-brand-600 dark:text-brand-400 hover:underline" href="cv/@c.CvId">@c.PositionTitle</a>
+                                    @if (c.Status == CvStatus.Draft)
+                                    {
+                                        <span class="ml-2 rounded bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 text-xs text-amber-700 dark:text-amber-400">@I18n.T("cv.draft")</span>
+                                    }
+                                }
+                            </td>
+                            <td class="px-4 py-2">@(c.Status == CvStatus.Published ? I18n.T("cv.published") : I18n.T("cv.draft"))</td>
+                            <td class="px-4 py-2 text-slate-500">@c.CreatedAt.ToString("MMM d, yyyy")</td>
+            </tr>
+                    }
+                    @if (!_cvs.Any())
+                    {
+                        <tr><td colspan="3" class="px-4 py-6 text-center text-slate-400">No CVs yet — create one from a position.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    @if (_projectEdit is not null)
+    {
+        <ProjectEditor Project="_projectEdit" TagsAll="_allTags" OnSaved="SaveProject" OnCancel="() => _projectEdit = null" />
+    }
+}
+
+@code {
+    [Parameter] public string UserId { get; set; } = "";
+
+    private bool _loading = true;
+    private bool _saving;
+    private string _tab = "me";
+    private string _userId = "";
+    private bool _isCandidateView = true;
+    private string _email = "";
+    private string? _photoUrl;
+    private string _firstName = "";
+    private string _lastName = "";
+    private List<CvFieldDto> _me_fields = [];
+    private List<CvFieldDto> _info_fields = [];
+    private int _aboutId;
+    private List<ProjectDto> _projects = [];
+    private List<string> _allTags = [];
+    private List<CvRow> _cvs = [];
+    private ProjectDto? _projectEdit;
+    private System.Timers.Timer? _timer;
+    private HashSet<int> _dirty = [];
+    private string? _conflictMsg;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        _userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        _email = auth.User.Identity?.Name ?? "";
+
+        // Recruiters don't have candidate profiles (spec): no Info/Projects/CVs — only their own Me section.
+        _isCandidateView = !auth.User.IsInRole("Recruiter") || auth.User.IsInRole("Admin");
+
+        // Admins act as the owner of any profile (spec: "Admin can open a candidate's page ... as the owner").
+        if (!string.IsNullOrEmpty(UserId) && auth.User.IsInRole("Admin"))
+        {
+            _userId = UserId;
+        }
+        else if (!string.IsNullOrEmpty(UserId))
+        {
+            Nav.NavigateTo("/profile");
+            return;
+        }
+        await LoadAsync();
+        if (_isCandidateView)
+        {
+            _timer = new(6000) { AutoReset = true };
+            _timer.Elapsed += async (_, _) => await InvokeAsync(SaveTick);
+            _timer.Start();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var isRecruiter = (await AuthState.GetAuthenticationStateAsync()).User.IsInRole("Recruiter") && !(await AuthState.GetAuthenticationStateAsync()).User.IsInRole("Admin");
+        var isAdmin = (await AuthState.GetAuthenticationStateAsync()).User.IsInRole("Admin");
+
+        var builtins = await db.Attributes.Where(a => a.IsBuiltIn).OrderBy(a => a.Id).ToListAsync();
+        _aboutId = builtins.FirstOrDefault(a => a.Name == BuiltInAttributeNames.About)?.Id ?? 0;
+
+        // Show the profile owner's email (differs from the viewer when an admin edits someone else).
+        var ownerEmail = await db.Users.Where(u => u.Id == _userId).Select(u => u.Email).FirstOrDefaultAsync();
+        if (!string.IsNullOrEmpty(ownerEmail)) _email = ownerEmail;
+
+        var pinned = await db.ProfileAttributes.Where(pa => pa.UserId == _userId)
+            .Join(db.Attributes, pa => pa.AttributeId, a => a.Id, (pa, a) => new { pa.SortOrder, Attr = a })
+            .OrderBy(x => x.SortOrder).ToListAsync();
+
+        var attrIds = builtins.Select(a => a.Id).Concat(pinned.Select(x => x.Attr.Id)).Distinct().ToList();
+        // All values are needed: access rules may reference attributes not pinned to the profile.
+        var values = await db.AttributeValues.Where(v => v.UserId == _userId).ToDictionaryAsync(v => v.AttributeId);
+
+        var paById = builtins.ToDictionary(a => a.Id);
+        foreach (var p in pinned) paById[p.Attr.Id] = p.Attr;
+
+        CvFieldDto Field(AttributeDef a)
+        {
+            values.TryGetValue(a.Id, out var v);
+            return CvComposer.ToField(new PositionAttribute { Attribute = a, AttributeId = a.Id, Required = a.IsBuiltIn && a.Name != BuiltInAttributeNames.Headline && a.Name != BuiltInAttributeNames.About }, v, CvComposer.Xmin(db, v));
+        }
+
+        _me_fields = builtins.Where(a => a.Name != BuiltInAttributeNames.About).Select(Field).ToList();
+        _photoUrl = _me_fields.FirstOrDefault(f => f.Name == BuiltInAttributeNames.Photo)?.ImageUrl;
+        _firstName = _me_fields.FirstOrDefault(f => f.Name == BuiltInAttributeNames.FirstName)?.StringValue ?? "";
+        _lastName = _me_fields.FirstOrDefault(f => f.Name == BuiltInAttributeNames.LastName)?.StringValue ?? "";
+        _info_fields = pinned.Where(x => !x.Attr.IsBuiltIn).Select(x => Field(x.Attr)).ToList();
+
+        _projects = await db.Projects.Where(p => p.UserId == _userId).OrderBy(p => p.SortOrder)
+            .Select(p => new ProjectDto(p.Id, p.Name, p.PeriodStart, p.PeriodEnd, p.Description, p.Tags.Select(t => t.Tag.Name).ToArray())).ToListAsync();
+
+        _allTags = await db.Tags.OrderBy(t => t.Name).Select(t => t.Name).ToListAsync();
+
+        var positionTitles = await db.Positions.ToDictionaryAsync(p => p.Id, p => p.Title);
+        var accessByPosition = await db.Positions.Include(p => p.Filters).ThenInclude(f => f.Attribute).ToDictionaryAsync(p => p.Id, p => p);
+
+        _cvs = await db.Cvs.Where(c => c.UserId == _userId).OrderByDescending(c => c.CreatedAt)
+            .Select(c => new CvRow { CvId = c.Id, PositionId = c.PositionId, Status = c.Status, CreatedAt = c.CreatedAt, PositionTitle = positionTitles.GetValueOrDefault(c.PositionId) ?? "?" })
+            .ToListAsync();
+        foreach (var c in _cvs)
+        {
+            if (!accessByPosition.TryGetValue(c.PositionId, out var pos)) { c.Hidden = true; continue; }
+            c.Hidden = !AccessRules.HasAccess(pos, values, isAdmin || isRecruiter);
+        }
+        _loading = false;
+    }
+
+    // ---------- autosave ----------
+    private void OnAutoSave(CvFieldDto f)
+    {
+        // Store the edited value in the field list, then mark dirty for the timer.
+        var idx = _me_fields.FindIndex(x => x.AttributeId == f.AttributeId);
+        if (idx >= 0) _me_fields[idx] = f;
+        else
+        {
+            var iidx = _info_fields.FindIndex(x => x.AttributeId == f.AttributeId);
+            if (iidx >= 0) _info_fields[iidx] = f;
+        }
+        _dirty.Add(f.AttributeId);
+    }
+
+    private async Task SaveTick()
+    {
+        if (!_isCandidateView || _dirty.Count == 0 || _saving) return;
+        _saving = true;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            foreach (var attrId in _dirty.ToList())
+            {
+                var idx = _me_fields.FindIndex(x => x.AttributeId == attrId);
+                var list = _me_fields;
+                if (idx < 0) { idx = _info_fields.FindIndex(x => x.AttributeId == attrId); list = _info_fields; }
+                if (idx < 0) { _dirty.Remove(attrId); continue; }
+                var f = list[idx];
+
+                var def = await db.Attributes.FirstOrDefaultAsync(a => a.Id == attrId);
+                if (def is null) { _dirty.Remove(attrId); continue; }
+
+                var value = await db.AttributeValues.FirstOrDefaultAsync(v => v.UserId == _userId && v.AttributeId == attrId);
+                var isNew = value is null;
+
+                // Optimistic locking via xmin: reload current version and compare.
+                if (!isNew && f.Version is uint expected)
+                {
+                    var current = db.Entry(value!).Property("xmin").CurrentValue as uint?;
+                    if (current is uint cur && cur != expected)
+                    {
+                        // Conflict: adopt the server state for this field.
+                        list[idx] = f with
+                        {
+                            Version = cur,
+                            StringValue = value!.StringValue, TextValue = value.TextValue, ImageUrl = value.ImageUrl,
+                            NumericValue = value.NumericValue, DateValue = value.DateValue,
+                            PeriodStart = value.PeriodStart, PeriodEnd = value.PeriodEnd,
+                            BoolValue = value.BoolValue, OptionValue = value.OptionValue,
+                            IsEmpty = CvComposer.IsEmpty(value, def.Type),
+                        };
+                        _dirty.Remove(attrId);
+                        _conflictMsg = I18n.T("profile.conflict");
+                        continue;
+                    }
+                }
+
+                if (isNew)
+                {
+                    value = new AttributeValue { UserId = _userId, AttributeId = attrId };
+                    db.AttributeValues.Add(value);
+                }
+
+                value!.StringValue = f.StringValue;
+                value.TextValue = f.TextValue;
+                value.ImageUrl = f.ImageUrl;
+                value.NumericValue = f.NumericValue;
+                value.DateValue = f.DateValue;
+                value.PeriodStart = f.PeriodStart;
+                value.PeriodEnd = f.PeriodEnd;
+                value.BoolValue = f.BoolValue;
+                value.OptionValue = f.OptionValue;
+
+                try
+                {
+                    await db.SaveChangesAsync();
+                }
+                catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException)
+                {
+                    _conflictMsg = I18n.T("profile.conflict");
+                    continue;
+                }
+
+                list[idx] = f with { Version = db.Entry(value).Property("xmin").CurrentValue as uint?, IsEmpty = CvComposer.IsEmpty(value, def.Type) };
+                _dirty.Remove(attrId);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Never let the timer thread kill the process.
+            Console.Error.WriteLine($"autosave failed: {ex.Message}");
+        }
+        finally
+        {
+            _saving = false;
+        }
+        StateHasChanged();
+    }
+
+    private sealed record SaveResult(uint? Version, bool Created);
+    private sealed record AttrValueDto(
+        uint? Version, string? StringValue, string? TextValue, string? ImageUrl,
+        double? NumericValue, DateOnly? DateValue, DateOnly? PeriodStart, DateOnly? PeriodEnd,
+        bool? BoolValue, string? OptionValue);
+
+    private async Task OnAttributePicked(int attrId)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        // Idempotent: picking an already-pinned attribute is a no-op (unique index otherwise).
+        var pinned = await db.ProfileAttributes.FirstOrDefaultAsync(pa => pa.UserId == _userId && pa.AttributeId == attrId);
+        if (pinned is null)
+        {
+            var max = await db.ProfileAttributes.Where(pa => pa.UserId == _userId).MaxAsync(pa => (int?)pa.SortOrder) ?? 0;
+            db.ProfileAttributes.Add(new ProfileAttribute { UserId = _userId, AttributeId = attrId, SortOrder = max + 1 });
+            await db.SaveChangesAsync();
+        }
+        await LoadAsync();
+    }
+
+    private async Task Unpin(int attrId)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var pin = await db.ProfileAttributes.FirstOrDefaultAsync(pa => pa.UserId == _userId && pa.AttributeId == attrId);
+        if (pin is not null) { db.ProfileAttributes.Remove(pin); await db.SaveChangesAsync(); }
+        await LoadAsync();
+    }
+
+    private void NewProject() => _projectEdit = new ProjectDto(0, "", null, null, "", []);
+
+    private void EditProject(ProjectDto p) => _projectEdit = p;
+
+    private async Task SaveProject(ProjectDto edited)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var project = edited.Id > 0
+            ? await db.Projects.Include(p => p.Tags).FirstOrDefaultAsync(p => p.Id == edited.Id && p.UserId == _userId)
+            : null;
+        if (project is null)
+        {
+            project = new Project { UserId = _userId, CreatedAt = DateTimeOffset.UtcNow };
+            var max = await db.Projects.Where(p => p.UserId == _userId).MaxAsync(p => (int?)p.SortOrder) ?? 0;
+            project.SortOrder = max + 1;
+            db.Projects.Add(project);
+        }
+        project.Name = edited.Name?.Trim() ?? "";
+        project.PeriodStart = edited.Start;
+        project.PeriodEnd = edited.End;
+        project.Description = edited.Description ?? "";
+
+        var tagNames = (edited.Tags ?? []).Select(t => t.Trim()).Where(t => t.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var existing = await db.Tags.Where(t => tagNames.Contains(t.Name)).ToDictionaryAsync(t => t.Name);
+        db.ProjectTags.RemoveRange(project.Tags);
+        foreach (var name in tagNames)
+        {
+            if (!existing.TryGetValue(name, out var tag))
+            {
+                tag = new Tag { Name = name };
+                db.Tags.Add(tag);
+                existing[name] = tag;
+            }
+            db.ProjectTags.Add(new ProjectTag { Project = project, Tag = tag });
+        }
+        await db.SaveChangesAsync();
+        _projectEdit = null;
+        await LoadAsync();
+    }
+
+    private async Task DeleteProject(ProjectDto p)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var project = await db.Projects.FirstOrDefaultAsync(x => x.Id == p.Id && x.UserId == _userId);
+        if (project is not null)
+        {
+            db.Projects.Remove(project);
+            await db.SaveChangesAsync();
+        }
+        await LoadAsync();
+    }
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+        _timer = null;
+    }
+
+    private sealed class CvRow
+    {
+        public int CvId { get; set; }
+        public int PositionId { get; set; }
+        public CvStatus Status { get; set; }
+        public DateTimeOffset CreatedAt { get; set; }
+        public string PositionTitle { get; set; } = "";
+        public bool Hidden { get; set; }
+    }
+}

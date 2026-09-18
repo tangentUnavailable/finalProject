@@ -1,0 +1,177 @@
+@page "/attributes"
+@attribute [Authorize(Roles = "Admin,Recruiter")]
+@using CvHub.Shared
+@using CvHub.Features.Positions
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+
+<PageTitle>Attribute Library — CvHub</PageTitle>
+
+<div class="mb-4 flex flex-wrap items-center gap-2">
+    <h1 class="text-2xl font-bold">@I18n.T("nav.attributes")</h1>
+    <input type="search" placeholder="Filter by prefix…" value="@_filter" @oninput="OnFilter" class="ml-auto w-56 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-1.5 text-sm" />
+    <button type="button" @onclick='() => OpenEditor(null)' class="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-700">+ @I18n.T("attr.create")</button>
+</div>
+
+<div class="@(ToolbarClass)">
+    <span class="text-sm font-medium">@_selected.Count @I18n.T("common.selected")</span>
+    <button type="button" @onclick="DeleteSelected" class="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-rose-700">@I18n.T("common.delete")</button>
+</div>
+
+<div class="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="border-b border-slate-200 dark:border-slate-700 text-left text-xs uppercase tracking-wide text-slate-500">
+                <th class="w-10 px-3 py-2"><input type="checkbox" checked="@AllChecked" @onchange="ToggleAll" class="h-4 w-4 rounded accent-brand-600" /></th>
+                <th class="cursor-pointer px-4 py-2" @onclick='() => SortBy("name")'>@I18n.T("table.name") @SortMark("name")</th>
+                <th class="cursor-pointer px-4 py-2" @onclick='() => SortBy("category")'>@I18n.T("table.category") @SortMark("category")</th>
+                <th class="cursor-pointer px-4 py-2" @onclick='() => SortBy("type")'>@I18n.T("table.type") @SortMark("type")</th>
+                <th class="px-4 py-2">@I18n.T("table.description")</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var a in _rows)
+            {
+                var row = a;
+                <tr class="group border-b border-slate-100 dark:border-slate-700/50 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-700/30">
+                    <td class="px-3 py-2">
+                        @if (!row.IsBuiltIn)
+                        {
+                            <input type="checkbox" checked="@(_selected.Contains(row.Id))" @onchange="e => ToggleRow(row.Id, e)" class="h-4 w-4 rounded accent-brand-600" />
+                        }
+                    </td>
+                    <td class="px-4 py-2">
+                        <span class="font-medium">@row.Name</span>
+                        @if (row.IsBuiltIn)
+                        {
+                            <span class="ml-1.5 rounded bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 text-[10px] uppercase text-slate-500">@I18n.T("attr.builtin")</span>
+                        }
+                        <span class="ml-2 hidden gap-1 group-hover:inline-flex">
+                            @if (!row.IsBuiltIn)
+                            {
+                                <button type="button" @onclick='() => OpenEditor(row.Id)' title="@I18n.T("attr.edit")" class="text-xs text-slate-400 hover:text-brand-600">✏️</button>
+                                <button type="button" @onclick='() => DeleteOne(row.Id)' title="@I18n.T("attr.delete")" class="text-xs text-slate-400 hover:text-rose-600">🗑️</button>
+                            }
+                        </span>
+                    </td>
+                    <td class="px-4 py-2">@row.Category</td>
+                    <td class="px-4 py-2">@row.Type</td>
+                    <td class="max-w-xs truncate px-4 py-2 text-slate-500">@row.Description</td>
+                </tr>
+            }
+            @if (!_rows.Any())
+            {
+                <tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">No attributes found.</td></tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@if (_editorOpen)
+{
+    <AttributeEditorModal AttributeId="_editId" OnClosed="OnEditorClosed" />
+}
+
+@code {
+    private List<Row> _all = [];
+    private List<Row> _rows = [];
+    private HashSet<int> _selected = [];
+    private bool _editorOpen;
+    private int? _editId;
+    private string _filter = "";
+    private string _sortKey = "name";
+    private bool _desc;
+    private System.Timers.Timer? _debounce;
+
+    private string ToolbarClass => _selected.Count > 0
+        ? "mb-3 flex items-center gap-3 rounded-xl border border-rose-200 dark:border-rose-900 bg-rose-50 dark:bg-rose-900/20 px-4 py-2"
+        : "hidden";
+
+    private bool AllChecked => _rows.Count > 0 && _rows.All(r => _selected.Contains(r.Id));
+
+    protected override async Task OnInitializedAsync()
+    {
+        _debounce = new System.Timers.Timer(250) { AutoReset = false };
+        _debounce.Elapsed += async (_, _) => await InvokeAsync(ApplyFilter);
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _all = await db.Attributes.OrderBy(a => a.Name)
+            .Select(a => new Row { Id = a.Id, Name = a.Name, Category = a.Category, Type = a.Type, Description = a.Description, IsBuiltIn = a.IsBuiltIn })
+            .ToListAsync();
+        ApplyFilterLocal();
+    }
+
+    private void OnFilter(ChangeEventArgs e)
+    {
+        _filter = e.Value?.ToString() ?? "";
+        _debounce!.Stop(); _debounce.Start();
+    }
+
+    private Task ApplyFilter() { ApplyFilterLocal(); return Task.CompletedTask; }
+
+    private void ApplyFilterLocal()
+    {
+        _rows = string.IsNullOrWhiteSpace(_filter)
+            ? _all
+            : _all.Where(r => r.Name.StartsWith(_filter, StringComparison.OrdinalIgnoreCase)).ToList();
+        _rows = _sortKey switch
+        {
+            "category" when _desc => _rows.OrderByDescending(r => r.Category).ToList(),
+            "category" => _rows.OrderBy(r => r.Category).ToList(),
+            "type" when _desc => _rows.OrderByDescending(r => r.Type).ToList(),
+            "type" => _rows.OrderBy(r => r.Type).ToList(),
+            "name" when _desc => _rows.OrderByDescending(r => r.Name).ToList(),
+            _ => _rows.OrderBy(r => r.Name).ToList(),
+        };
+        StateHasChanged();
+    }
+
+    private void SortBy(string key) { if (_sortKey == key) _desc = !_desc; else { _sortKey = key; _desc = false; } ApplyFilterLocal(); }
+
+    private string SortMark(string key) => _sortKey == key ? (_desc ? "↓" : "↑") : "";
+
+    private void ToggleAll(ChangeEventArgs e) { _selected = e.Value is true ? new HashSet<int>(_rows.Where(r => !r.IsBuiltIn).Select(r => r.Id)) : []; }
+
+    private void ToggleRow(int id, ChangeEventArgs e) { if (e.Value is true) _selected.Add(id); else _selected.Remove(id); }
+
+    private async Task DeleteSelected()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var used = await db.PositionAttributes.Where(pa => _selected.Contains(pa.AttributeId)).Select(pa => pa.AttributeId).Distinct().ToListAsync();
+        var deletable = _selected.Except(used).ToList();
+        await db.Attributes.Where(a => deletable.Contains(a.Id) && !a.IsBuiltIn)
+            .ExecuteUpdateAsync(s => s.SetProperty(a => a.IsDeleted, true));
+        _selected.Clear();
+        await LoadAsync();
+    }
+
+    private async Task DeleteOne(int id)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var attr = await db.Attributes.Include(a => a.PositionAttributes).FirstOrDefaultAsync(a => a.Id == id);
+        if (attr is not null && !attr.IsBuiltIn && attr.PositionAttributes.Count == 0)
+        {
+            attr.IsDeleted = true;
+            await db.SaveChangesAsync();
+        }
+        await LoadAsync();
+    }
+
+    private void OpenEditor(int? id) { _editId = id; _editorOpen = true; }
+
+    private async Task OnEditorClosed() { _editorOpen = false; await LoadAsync(); }
+
+    public sealed class Row
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = "";
+        public string Category { get; set; } = "";
+        public AttributeType Type { get; set; }
+        public string? Description { get; set; }
+        public bool IsBuiltIn { get; set; }
+    }
+}

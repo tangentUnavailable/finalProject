@@ -1,0 +1,148 @@
+@page "/public-profile/{UserId}"
+@attribute [Authorize(Roles = "Admin,Recruiter")]
+@using CvHub.Shared
+@using CvHub.Infrastructure
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+
+<PageTitle>Profile — CvHub</PageTitle>
+
+@if (_name is null)
+{
+    <div class="text-slate-400">@I18n.T("common.loading")</div>
+}
+else
+{
+    <div class="mb-4 flex items-center gap-3">
+        @if (!string.IsNullOrEmpty(_photo))
+        {
+            <img src="@_photo" class="h-14 w-14 rounded-full object-cover" alt="photo" />
+        }
+        <div>
+            <h1 class="text-2xl font-bold">@_name</h1>
+            <div class="text-sm text-slate-500">@_headline</div>
+        </div>
+    </div>
+
+    <h2 class="mb-2 text-sm font-bold uppercase tracking-wide text-slate-400">@I18n.T("profile.info")</h2>
+    <div class="grid gap-3 sm:grid-cols-2">
+        @foreach (var v in _infoValues)
+        {
+            <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3">
+                <div class="text-sm font-semibold">@v.Name</div>
+                <div class="mt-0.5 text-sm @(v.IsEmpty ? "text-rose-500" : "text-slate-600 dark:text-slate-300")">
+                    @(v.IsEmpty ? I18n.T("cv.empty") : v.Display)
+                </div>
+            </div>
+        }
+    </div>
+
+    <h2 class="mb-2 mt-6 text-sm font-bold uppercase tracking-wide text-slate-400">@I18n.T("profile.projects")</h2>
+    <div class="space-y-3">
+        @foreach (var p in _projects)
+        {
+            <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3">
+                <div class="flex items-baseline justify-between">
+                    <div class="font-semibold text-sm">@p.Name</div>
+                    <div class="text-xs text-slate-400">@(p.Start?.ToString("MMM yyyy") ?? "?") — @(p.End?.ToString("MMM yyyy") ?? "present")</div>
+                </div>
+                <div class="mt-1 flex flex-wrap gap-1">
+                    @foreach (var t in p.Tags)
+                    {
+                        <span class="rounded-full bg-brand-50 dark:bg-brand-900/40 px-2 py-0.5 text-xs text-brand-700 dark:text-brand-300">@t</span>
+                    }
+                </div>
+                <MarkdownDisplay Markdown="@p.Description" Class="mt-1" />
+            </div>
+        }
+        @if (!_projects.Any())
+        {
+            <div class="text-sm text-slate-400">No projects.</div>
+        }
+    </div>
+
+    <h2 class="mb-2 mt-6 text-sm font-bold uppercase tracking-wide text-slate-400">@I18n.T("profile.cvs")</h2>
+    <div class="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+        <table class="w-full text-sm">
+            <tbody>
+                @foreach (var c in _cvs)
+                {
+                    <tr class="border-b border-slate-100 dark:border-slate-700/50 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-700/30">
+                        <td class="px-4 py-2"><a href="cv/@c.Id" class="font-medium text-brand-600 dark:text-brand-400 hover:underline">@c.Title</a></td>
+                        <td class="px-4 py-2 text-slate-500">❤️ @c.Likes</td>
+                    </tr>
+                }
+                @if (!_cvs.Any())
+                {
+                    <tr><td class="px-4 py-6 text-center text-slate-400">No CVs.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [Parameter] public string UserId { get; set; } = "";
+
+    private string? _name;
+    private string? _photo;
+    private string? _headline;
+    private List<ValueRow> _infoValues = [];
+    private List<ProjectDto> _projects = [];
+    private List<CvRow> _cvs = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Admins get the owner (editable) view; recruiters get the read-only view.
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        if (authState.User.IsInRole("Admin"))
+        {
+            Nav.NavigateTo($"/profile/u/{UserId}");
+            return;
+        }
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == UserId);
+        if (user is null) { Nav.NavigateTo("not-found"); return; }
+        _name = user.DisplayName ?? user.Email;
+
+        var firstLast = await db.AttributeValues.Where(v => v.UserId == UserId)
+            .Join(db.Attributes, v => v.AttributeId, a => a.Id, (v, a) => new { a.Name, v })
+            .ToListAsync();
+        _photo = firstLast.FirstOrDefault(x => x.Name == BuiltInAttributeNames.Photo)?.v.ImageUrl;
+        _headline = firstLast.FirstOrDefault(x => x.Name == BuiltInAttributeNames.Headline)?.v.StringValue;
+
+        var pinned = await db.ProfileAttributes.Where(pa => pa.UserId == UserId)
+            .Join(db.Attributes, pa => pa.AttributeId, a => a.Id, (pa, a) => a).ToListAsync();
+        foreach (var a in pinned)
+        {
+            var v = firstLast.FirstOrDefault(x => x.Name == a.Name)?.v;
+            var empty = v is null || CvComposer.IsEmpty(v, a.Type);
+            _infoValues.Add(new ValueRow(a.Name, CvFieldValuePlain(a.Type, v), empty));
+        }
+
+        _projects = await db.Projects.Where(p => p.UserId == UserId).OrderBy(p => p.SortOrder)
+            .Select(p => new ProjectDto(p.Id, p.Name, p.PeriodStart, p.PeriodEnd, p.Description, p.Tags.Select(t => t.Tag.Name).ToArray()))
+            .ToListAsync();
+
+        _cvs = await db.Cvs.Where(c => c.UserId == UserId && c.Status == CvStatus.Published)
+            .Select(c => new CvRow { Id = c.Id, Title = c.Position.Title, Likes = db.Likes.Count(l => l.CvId == c.Id) })
+            .ToListAsync();
+    }
+
+    private static string? CvFieldValuePlain(AttributeType t, Domain.AttributeValue? v) => t switch
+    {
+        AttributeType.String => v?.StringValue,
+        AttributeType.Numeric => v?.NumericValue?.ToString(),
+        AttributeType.Date => v?.DateValue?.ToString("d MMM yyyy"),
+        AttributeType.Period => $"{v?.PeriodStart?.ToString("MMM yyyy")} — {v?.PeriodEnd?.ToString("MMM yyyy") ?? "present"}",
+        AttributeType.Boolean => v?.BoolValue == true ? "✔" : "—",
+        AttributeType.OneOfMany => v?.OptionValue,
+        AttributeType.Image => v?.ImageUrl,
+        _ => v?.TextValue,
+    };
+
+    private sealed record ValueRow(string Name, string? Display, bool IsEmpty);
+    private sealed class CvRow { public int Id { get; set; } public string Title { get; set; } = ""; public int Likes { get; set; } }
+}

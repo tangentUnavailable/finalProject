@@ -1,0 +1,12 @@
+{
+  "name": "cvhub-ui",
+  "private": true,
+  "scripts": {
+    "build:css": "tailwindcss -i ./Tailwind/app.css -o ./CvHub/wwwroot/app.css --minify",
+    "watch:css": "tailwindcss -i ./Tailwind/app.css -o ./CvHub/wwwroot/app.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.13",
+    "tailwindcss": "^4.1.13"
+  }
+}

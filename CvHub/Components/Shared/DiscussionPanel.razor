@@ -1,0 +1,149 @@
+@using Microsoft.JSInterop
+@using CvHub.Data
+@using CvHub.Domain
+@using CvHub.Infrastructure
+@using Microsoft.EntityFrameworkCore
+@implements IDisposable
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthState
+
+<h3 class="sr-only">Discussion</h3>
+<div class="space-y-3" id="discussion-posts">
+    @foreach (var c in _posts)
+    {
+        <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3">
+            <div class="flex items-baseline gap-2 text-xs text-slate-400">
+                @if (c.IsRecruiterView && c.AuthorId is not null)
+                {
+                    <a href="public-profile/@c.AuthorId" class="font-semibold text-brand-600 dark:text-brand-400 hover:underline">@c.AuthorName</a>
+                }
+                else
+                {
+                    <span class="font-semibold text-slate-600 dark:text-slate-300">@c.AuthorName</span>
+                }
+                <span>@c.CreatedAt.ToString("MMM d, HH:mm:ss")</span>
+            </div>
+            <MarkdownDisplay Markdown="@c.Body" Class="mt-1" />
+        </div>
+    }
+    @if (!_posts.Any())
+    {
+        <div class="rounded-xl border border-dashed border-slate-300 dark:border-slate-600 p-4 text-sm text-slate-400">No posts yet — start the discussion.</div>
+    }
+</div>
+
+@if (_canPost)
+{
+    <div class="mt-3">            <textarea rows="2" placeholder="Write a post (Markdown supported)…" value="@_draft"
+                  @oninput="@(e => { _draft = e.Value?.ToString() ?? ""; })"
+                  class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-2 text-sm"></textarea>
+        <div class="mt-1 flex items-center gap-2">
+            <button type="button" @onclick="Post" disabled="@(_busy || string.IsNullOrWhiteSpace(_draft))"
+                    class="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50">Post</button>
+            <span class="text-xs text-slate-400">live — updates every 2s</span>
+        </div>
+    </div>
+}
+else
+{
+    <div class="mt-3 text-xs text-slate-400">Sign in to join the discussion.</div>
+}
+
+@code {
+    [Parameter, EditorRequired] public int PositionId { get; set; }
+
+    private List<PostDto> _posts = [];
+    private string _draft = "";
+    private bool _busy;
+    private bool _canPost;
+    private bool _isRecruiter;
+    private DotNetObjectReference<DiscussionPanel>? _ref;
+    private DateTimeOffset _lastPoll = DateTimeOffset.MinValue;
+    private int _lastCount;
+    private string? _userId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        _canPost = auth.User.Identity?.IsAuthenticated == true;
+        _isRecruiter = auth.User.IsInRole("Recruiter") || auth.User.IsInRole("Admin");
+        _userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        await PollOnce();
+        _ref = DotNetObjectReference.Create(this);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        await JS.InvokeVoidAsync("cvLive.start", $"pos-{PositionId}", _ref, 2000);
+    }
+
+    [JSInvokable]
+    public async Task Poll()
+    {
+        await PollOnce();
+        StateHasChanged();
+    }
+
+    private async Task PollOnce()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var isRecruiter = _isRecruiter;
+        var rows = await db.Comments.Where(c => c.PositionId == PositionId)
+            .OrderBy(c => c.CreatedAt).Take(500)
+            .Select(c => new
+            {
+                c.Id,
+                c.Body,
+                c.CreatedAt,
+                c.UserId,
+                AuthorName = db.Users.Where(u => u.Id == c.UserId).Select(u => u.DisplayName ?? u.UserName).FirstOrDefault(),
+            })
+            .ToListAsync();
+        if (rows.Count == _lastCount) return;
+        // Posts are strictly chronological — append only.
+        _posts = rows.Select(p => new PostDto
+        {
+            Id = p.Id,
+            Body = p.Body,
+            CreatedAt = p.CreatedAt,
+            AuthorId = isRecruiter ? p.UserId : null,
+            AuthorName = p.AuthorName ?? "user",
+            IsRecruiterView = isRecruiter,
+        }).ToList();
+        _lastCount = _posts.Count;
+    }
+
+    private async Task Post()
+    {
+        if (string.IsNullOrWhiteSpace(_draft)) return;
+        _busy = true;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            db.Comments.Add(new Comment { PositionId = PositionId, UserId = _userId, Body = _draft, CreatedAt = DateTimeOffset.UtcNow });
+            await db.SaveChangesAsync();
+            _draft = "";
+            await PollOnce();
+            StateHasChanged();
+        }
+        finally { _busy = false; }
+    }
+
+    public void Dispose()
+    {
+        JS.InvokeVoidAsync("cvLive.stop", $"pos-{PositionId}");
+        _ref?.Dispose();
+    }
+
+    public sealed class PostDto
+    {
+        public int Id { get; set; }
+        public string AuthorName { get; set; } = "";
+        public string? AuthorId { get; set; }
+        public bool IsRecruiterView { get; set; }
+        public DateTimeOffset CreatedAt { get; set; }
+        public string Body { get; set; } = "";
+    }
+}

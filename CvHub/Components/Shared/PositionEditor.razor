@@ -1,0 +1,252 @@
+@using CvHub.Shared
+@using System.Net.Http
+@using System.Net.Http.Json
+@implements IDisposable
+@inject HttpClient Http
+
+<div class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4">
+    <div class="my-8 w-full max-w-3xl rounded-2xl bg-white dark:bg-slate-800 p-5 shadow-2xl">
+        <div class="mb-4 flex items-center justify-between">
+            <h3 class="text-lg font-semibold">@(PositionId is null ? I18n.T("pos.create") : I18n.T("pos.edit"))</h3>
+            <button type="button" @onclick="Close" class="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+
+        <div class="grid gap-3 text-sm sm:grid-cols-2">
+            <label class="sm:col-span-2">
+                <span class="mb-1 block font-medium">Title *</span>
+                <input type="text" @bind="_title" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5" />
+            </label>
+            <label class="sm:col-span-2">
+                <span class="mb-1 block font-medium">Short description</span>
+                <input type="text" @bind="_shortDesc" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5" />
+            </label>
+            <label>
+                <span class="mb-1 block font-medium">Company</span>
+                <input type="text" @bind="_company" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5" />
+            </label>
+            <label>
+                <span class="mb-1 block font-medium">Level</span>
+                <select @bind="_level" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5">
+                    <option value=""></option>
+                    @foreach (var l in Levels)
+                    {
+                        <option value="@l">@l</option>
+                    }
+                </select>
+            </label>
+        </div>
+
+        <h4 class="mb-2 mt-5 text-sm font-bold uppercase tracking-wide text-slate-400">@I18n.T("pos.template")</h4>
+        <div class="rounded-xl border border-slate-200 dark:border-slate-700">
+            @foreach (var a in _attrs)
+            {
+                var idx = _attrs.IndexOf(a);
+                <div class="flex items-center gap-2 border-b border-slate-100 dark:border-slate-700/50 px-3 py-2 last:border-0">
+                    <span class="cursor-grab text-slate-300">⠿</span>
+                    <span class="flex-1 text-sm">@a.Name <span class="text-xs text-slate-400">· @a.Type · @a.Category</span></span>
+                    <label class="flex items-center gap-1 text-xs">
+                        <input type="checkbox" @bind="a.Required" class="h-3.5 w-3.5 accent-brand-600" /> required
+                    </label>
+                    <input type="text" placeholder="Section" @bind="a.Section" class="w-24 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2 py-1 text-xs" />
+                    <button type="button" @onclick="() => _attrs.RemoveAt(idx)" class="text-slate-300 hover:text-rose-500">✕</button>
+                </div>
+            }
+            @if (!_attrs.Any())
+            {
+                <div class="px-3 py-3 text-sm text-slate-400">No attributes yet — add from the library below.</div>
+            }
+        </div>
+        <div class="mt-2 max-w-xl"><AttributePicker OnPicked="AddAttribute" /></div>
+
+        <h4 class="mb-2 mt-5 text-sm font-bold uppercase tracking-wide text-slate-400">@I18n.T("pos.access")</h4>
+        <div class="flex items-center gap-4 text-sm">
+            <label class="flex items-center gap-1.5">
+                <input type="radio" checked="@(_access == PositionAccess.Public)" @onchange='() => _access = PositionAccess.Public' class="accent-brand-600" /> @I18n.T("pos.public")
+            </label>
+            <label class="flex items-center gap-1.5">
+                <input type="radio" checked="@(_access == PositionAccess.Restricted)" @onchange='() => _access = PositionAccess.Restricted' class="accent-brand-600" /> @I18n.T("pos.restricted")
+            </label>
+        </div>
+        @if (_access == PositionAccess.Restricted)
+        {
+            <div class="mt-2 space-y-2">
+                @foreach (var f in _filters)
+                {
+                    var idx = _filters.IndexOf(f);
+                    <div class="flex flex-wrap items-center gap-2 text-sm">
+                        <select @bind="f.AttributeId" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm">
+                            @foreach (var a in _attrs)
+                            {
+                                <option value="@a.AttributeId">@a.Name</option>
+                            }
+                        </select>
+                        <select @bind="f.Operator" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm">
+                            @foreach (var op in OpsFor(f))
+                            {
+                                <option value="@op">@OpName(op)</option>
+                            }
+                        </select>
+                        @if (f.Operator is not FilterOperator.IsTrue and not FilterOperator.IsFalse)
+                        {
+                            <input type="text" @bind="f.Value" class="w-40 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm" />
+                        }
+                        <button type="button" @onclick="() => _filters.RemoveAt(idx)" class="text-slate-300 hover:text-rose-500">✕</button>
+                    </div>
+                }
+                @if (!_filters.Any())
+                {
+                    <div class="text-sm text-slate-400">No rules — everyone authenticated gets access.</div>
+                }
+                <button type="button" @onclick="AddFilter" class="rounded-lg border border-dashed border-slate-300 dark:border-slate-600 px-2.5 py-1 text-xs font-medium hover:border-brand-500 hover:text-brand-600">+ Add rule</button>
+            </div>
+        }
+
+        <h4 class="mb-2 mt-5 text-sm font-bold uppercase tracking-wide text-slate-400">Project tags &amp; max projects</h4>
+        <div class="flex flex-wrap items-center gap-2">
+            @foreach (var t in _allTags)
+            {
+                var selected = _tagIds.Contains(t.Id);
+                <button type="button" @onclick="() => ToggleTag(t.Id)"
+                        class="rounded-full px-2.5 py-0.5 text-xs @(selected ? "bg-brand-600 text-white" : "bg-slate-100 dark:bg-slate-700 hover:bg-brand-100 dark:hover:bg-slate-600")">@t.Name</button>
+            }
+            <input type="number" min="1" max="20" @bind="_maxProjects" class="w-24 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm" title="Max projects" />
+            <span class="text-xs text-slate-400">max projects in CV</span>
+        </div>
+
+        @if (_error is not null)
+        {
+            <div class="mt-3 rounded-lg bg-rose-50 dark:bg-rose-900/30 px-3 py-2 text-sm text-rose-600 dark:text-rose-400">@_error</div>
+        }
+
+        <div class="mt-5 flex justify-end gap-2">
+            <button type="button" @onclick="Close" class="rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button>
+            <button type="button" @onclick="Save" disabled="@_busy" class="rounded-lg bg-brand-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50">Save</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public int? PositionId { get; set; }
+    [Parameter] public EventCallback OnClosed { get; set; }
+
+    private string _title = "";
+    private string? _shortDesc;
+    private string? _company;
+    private string? _level;
+    private PositionAccess _access = PositionAccess.Public;
+    private List<AttrLine> _attrs = [];
+    private List<FilterLine> _filters = [];
+    private List<TagRow> _allTags = [];
+    private HashSet<int> _tagIds = [];
+    private int _maxProjects = 5;
+    private bool _busy;
+    private string? _error;
+    private uint? _version;
+
+    private static readonly string[] Levels = ["Junior", "Middle", "Senior", "Lead", "C-level"];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _allTags = await Http.GetFromJsonAsync<List<TagRow>>("/api/tags") ?? [];
+        if (PositionId is not null)
+        {
+            var dto = await Http.GetFromJsonAsync<PosDto>($"/api/positions/{PositionId}");
+            if (dto is not null)
+            {
+                _title = dto.Title; _shortDesc = dto.ShortDescription; _company = dto.Company; _level = dto.Level;
+                _access = dto.Access;
+                _attrs = dto.Attributes.Select(a => new AttrLine { Id = a.Id, AttributeId = a.AttributeId, Name = a.Name, Type = a.Type, Category = a.Category, Required = a.Required, Section = a.Section }).ToList();
+                _filters = dto.Filters.Select(f => new FilterLine { AttributeId = f.AttributeId, Operator = f.Operator, Value = f.Value }).ToList();
+                _tagIds = dto.Tags.Select(t => t.TagId).ToHashSet();
+                _maxProjects = dto.MaxProjects;
+                _version = dto.Version;
+            }
+        }
+    }
+
+    private void AddAttribute(int attributeId)
+    {
+        if (_attrs.Any(a => a.AttributeId == attributeId)) return;
+        _attrs.Add(new AttrLine { AttributeId = attributeId, Name = $"#{attributeId}", Required = false, Section = "Skills" });
+        _ = HydrateNewAttribute(attributeId);
+    }
+
+    private async Task HydrateNewAttribute(int attributeId)
+    {
+        var row = (await Http.GetFromJsonAsync<List<AttrRow>>($"/api/attributes/lookup?ids={attributeId}"))?.FirstOrDefault();
+        if (row is not null)
+        {
+            var line = _attrs.FirstOrDefault(a => a.AttributeId == attributeId);
+            if (line is not null) { line.Name = row.Name; line.Type = row.Type; line.Category = row.Category; StateHasChanged(); }
+        }
+    }
+
+    private void AddFilter()
+    {
+        if (_attrs.Count == 0) return;
+        _filters.Add(new FilterLine { AttributeId = _attrs[0].AttributeId, Operator = FilterOperator.Equals, Value = "" });
+    }
+
+    private IEnumerable<FilterOperator> OpsFor(FilterLine f)
+    {
+        var type = _attrs.FirstOrDefault(a => a.AttributeId == f.AttributeId)?.Type ?? AttributeType.String;
+        return FilterOps.OperatorsFor(type);
+    }
+
+    private static string OpName(FilterOperator op) => op switch
+    {
+        FilterOperator.Equals => "=", FilterOperator.NotEquals => "≠",
+        FilterOperator.GreaterThan => ">", FilterOperator.GreaterOrEqual => "≥",
+        FilterOperator.LessThan => "<", FilterOperator.LessOrEqual => "≤",
+        FilterOperator.IsTrue => "is true", FilterOperator.IsFalse => "is false",
+        _ => op.ToString(),
+    };
+
+    private void ToggleTag(int id) { if (!_tagIds.Remove(id)) _tagIds.Add(id); }
+
+    private void Close() => _ = OnClosed.InvokeAsync();
+
+    private async Task Save()
+    {
+        if (string.IsNullOrWhiteSpace(_title)) { _error = "Title is required."; return; }
+        _busy = true; _error = null;
+        try
+        {
+            var body = new PositionUpsert(
+                _title.Trim(), _shortDesc, _company, _level, _access, _maxProjects,
+                _attrs.Select((a, i) => new PositionAttributeReq(a.Id, a.AttributeId, a.Required, a.Section)).ToList(),
+                _filters.Select(f => new PositionFilterReq(f.AttributeId, f.Operator, f.Value)).ToList(),
+                _tagIds.ToList(),
+                PositionId is null ? null : _version);
+            var resp = PositionId is null
+                ? await Http.PostAsJsonAsync("/api/positions", body)
+                : await Http.PutAsJsonAsync($"/api/positions/{PositionId}", body);
+            if (resp.IsSuccessStatusCode)
+            {
+                if (PositionId is not null)
+                {
+                    var result = await resp.Content.ReadFromJsonAsync<SaveResult>();
+                    if (result?.Version is uint v) _version = v;
+                }
+                await OnClosed.InvokeAsync();
+            }
+            else _error = $"Save failed: {resp.StatusCode}";
+        }
+        finally { _busy = false; }
+    }
+
+    public void Dispose() { }
+
+    public sealed class AttrLine { public int Id { get; set; } public int AttributeId { get; set; } public string Name { get; set; } = ""; public AttributeType Type { get; set; } public string Category { get; set; } = ""; public bool Required { get; set; } public string? Section { get; set; } }
+    public sealed class FilterLine { public int AttributeId { get; set; } public FilterOperator Operator { get; set; } public string Value { get; set; } = ""; }
+    public sealed record TagRow(int Id, string Name);
+    public sealed record AttrRow(int Id, string Name, string Category, AttributeType Type);
+    public sealed record AttrDto(int Id, int AttributeId, bool Required, int SortOrder, string? Section, string Name, AttributeType Type, string Category, string? Options);
+    public sealed record FilterDto(int Id, int AttributeId, FilterOperator Operator, string Value, string Name, AttributeType Type);
+    public sealed record TagDto(int TagId, string Name);
+    public sealed record PosDto(int Id, string Title, string? ShortDescription, string? Company, string? Level, PositionAccess Access, int MaxProjects, DateTimeOffset UpdatedAt, List<AttrDto> Attributes, List<FilterDto> Filters, List<TagDto> Tags, uint? Version);
+    public sealed record PositionUpsert(string Title, string? ShortDescription, string? Company, string? Level, PositionAccess Access, int MaxProjects, List<PositionAttributeReq> Attributes, List<PositionFilterReq> Filters, List<int>? TagIds, uint? Version);
+    public sealed record PositionAttributeReq(int Id, int AttributeId, bool Required, string? Section);
+    public sealed record PositionFilterReq(int AttributeId, FilterOperator Operator, string Value);
+    public sealed record SaveResult(uint? Version);
+}

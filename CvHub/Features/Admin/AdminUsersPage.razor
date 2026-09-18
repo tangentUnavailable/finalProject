@@ -1,0 +1,125 @@
+@page "/admin/users"
+@attribute [Authorize(Roles = "Admin")]
+@using CvHub.Shared
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>User Management — CvHub</PageTitle>
+
+<h1 class="mb-4 text-2xl font-bold">@I18n.T("nav.users")</h1>
+
+<div class="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="border-b border-slate-200 dark:border-slate-700 text-left text-xs uppercase tracking-wide text-slate-500">
+                <th class="px-4 py-2">@I18n.T("table.name")</th>
+                <th class="px-4 py-2">Email</th>
+                <th class="px-4 py-2">Roles</th>
+                <th class="px-4 py-2">Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var u in _users)
+            {
+                var row = u;
+                <tr class="group border-b border-slate-100 dark:border-slate-700/50 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-700/30">
+                    <td class="px-4 py-2">
+                        <span class="font-medium">@(row.DisplayName ?? row.Email)</span>
+                        @if (row.Id == _currentUserId)
+                        {
+                            <span class="ml-1 text-[10px] uppercase text-brand-500">you</span>
+                        }
+                        <span class="ml-2 hidden gap-1 group-hover:inline-flex">
+                            <button type="button" @onclick='() => ToggleRole(row.Id, "Candidate", !row.Roles.Contains("Candidate"))' class="text-[10px] text-slate-400 hover:text-brand-600">+Candidate</button>
+                            <button type="button" @onclick='() => ToggleRole(row.Id, "Recruiter", !row.Roles.Contains("Recruiter"))' class="text-[10px] text-slate-400 hover:text-brand-600">+Recruiter</button>
+                            <button type="button" @onclick='() => ToggleRole(row.Id, "Admin", !row.Roles.Contains("Admin"))' class="text-[10px] text-slate-400 hover:text-brand-600">+Admin</button>
+                            <button type="button" @onclick='() => ToggleBlock(row.Id, !row.IsBlocked)' class="text-[10px] text-slate-400 hover:text-amber-600">@(row.IsBlocked ? "Unblock" : "Block")</button>
+                            @if (row.Id != _currentUserId)
+                            {
+                                <button type="button" @onclick='() => DeleteUser(row.Id)' class="text-[10px] text-slate-400 hover:text-rose-600">Delete</button>
+                            }
+                        </span>
+                    </td>
+                    <td class="px-4 py-2 text-slate-500">@row.Email</td>
+                    <td class="px-4 py-2">
+                        @foreach (var r in row.Roles)
+                        {
+                            <span class="mr-1 rounded-full bg-brand-50 dark:bg-brand-900/40 px-2 py-0.5 text-xs text-brand-700 dark:text-brand-300">@r</span>
+                        }
+                    </td>
+                    <td class="px-4 py-2">
+                        @if (row.IsBlocked)
+                        {
+                            <span class="rounded-full bg-rose-100 dark:bg-rose-900/40 px-2 py-0.5 text-xs text-rose-600 dark:text-rose-400">blocked</span>
+                        }
+                        else
+                        {
+                            <span class="rounded-full bg-emerald-100 dark:bg-emerald-900/40 px-2 py-0.5 text-xs text-emerald-600 dark:text-emerald-400">active</span>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@code {
+    private List<UserRow> _users = [];
+    private string _currentUserId = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        _currentUserId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _users = await db.Users.OrderBy(u => u.Email).Select(u => new UserRow
+        {
+            Id = u.Id,
+            Email = u.Email,
+            DisplayName = u.DisplayName,
+            IsBlocked = u.IsBlocked,
+            Roles = db.UserRoles.Where(ur => ur.UserId == u.Id)
+                .Join(db.Roles, ur => ur.RoleId, r => r.Id, (ur, r) => r.Name!).ToList(),
+        }).ToListAsync();
+    }
+
+    private async Task ToggleRole(string id, string role, bool on)
+    {
+        var http = new HttpClient { BaseAddress = new Uri(Nav.BaseUri) };
+        await http.PostAsync($"/api/admin/users/{id}/roles/{role}/{on}", null);
+        await LoadAsync();
+    }
+
+    private async Task ToggleBlock(string id, bool blocked)
+    {
+        var http = new HttpClient { BaseAddress = new Uri(Nav.BaseUri) };
+        await http.PostAsync($"/api/admin/users/{id}/block/{blocked}", null);
+        await LoadAsync();
+    }
+
+    private async Task DeleteUser(string id)
+    {
+        var http = new HttpClient { BaseAddress = new Uri(Nav.BaseUri) };
+        await http.DeleteAsync($"/api/admin/users/{id}");
+        await LoadAsync();
+    }
+
+    [Inject] private NavigationManager Nav { get; set; } = default!;
+
+    private sealed class UserRow
+    {
+        public string Id { get; set; } = "";
+        public string? Email { get; set; }
+        public string? DisplayName { get; set; }
+        public bool IsBlocked { get; set; }
+        public List<string> Roles { get; set; } = [];
+    }
+}

@@ -1,0 +1,139 @@
+﻿@page "/Account/Login"
+
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Identity
+@using CvHub.Data
+
+@inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject ILogger<Login> Logger
+@inject NavigationManager NavigationManager
+@inject IdentityRedirectManager RedirectManager
+
+@using CvHub.Shared
+<PageTitle>@I18n.T("account.login.title") — CvHub</PageTitle>
+
+<section class="mx-auto flex min-h-[70vh] w-full max-w-md flex-col justify-center py-8">
+    <div class="mb-8 text-center">
+        <span class="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-600 text-xl font-bold text-white shadow-lg shadow-brand-600/25">CV</span>
+        <h1 class="text-2xl font-bold tracking-tight">@I18n.T("account.login.title")</h1>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">@I18n.T("home.subtitle")</p>
+    </div>
+
+    <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8 dark:border-slate-700 dark:bg-slate-800">
+        <StatusMessage Message="@errorMessage" />
+        <EditForm EditContext="editContext" method="post" OnSubmit="LoginUser" FormName="login" class="space-y-4">
+            <DataAnnotationsValidator />
+            <ValidationSummary class="hidden" role="alert" />
+
+            <div>
+                <label for="Input.Email" class="mb-1 block text-sm font-medium">@I18n.T("account.email")</label>
+                <InputText @bind-Value="Input.Email" id="Input.Email" autocomplete="username webauthn" aria-required="true" placeholder="name@example.com"
+                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-slate-600 dark:bg-slate-900" />
+                <ValidationMessage For="() => Input.Email" class="mt-1 block text-xs text-rose-500" />
+            </div>
+
+            <div>
+                <label for="Input.Password" class="mb-1 block text-sm font-medium">@I18n.T("account.password")</label>
+                <InputText type="password" @bind-Value="Input.Password" id="Input.Password" autocomplete="current-password" aria-required="true" placeholder="••••••••"
+                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-slate-600 dark:bg-slate-900" />
+                <ValidationMessage For="() => Input.Password" class="mt-1 block text-xs text-rose-500" />
+            </div>
+
+            <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                <InputCheckbox @bind-Value="Input.RememberMe" class="h-4 w-4 rounded accent-brand-600" />
+                @I18n.T("account.login.remember")
+            </label>
+
+            <button type="submit" class="w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2">
+                @I18n.T("account.login.button")
+            </button>
+
+            <div class="flex items-center gap-3 py-1" aria-hidden="true">
+                <span class="h-px flex-1 bg-slate-200 dark:bg-slate-700"></span>
+                <span class="text-xs uppercase tracking-wide text-slate-400">@I18n.T("account.login.or")</span>
+                <span class="h-px flex-1 bg-slate-200 dark:bg-slate-700"></span>
+            </div>
+
+            <PasskeySubmit Operation="PasskeyOperation.Request" Name="Input.Passkey" EmailName="Input.Email"
+                           class="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-center text-sm font-medium text-slate-700 transition-colors hover:border-brand-500 hover:text-brand-600 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200">
+                @I18n.T("account.login.passkey")
+            </PasskeySubmit>
+
+            <ExternalLoginPicker />
+
+            <p class="text-center text-sm text-slate-500 dark:text-slate-400">
+                @I18n.T("account.login.noaccount")
+                <a href="@(NavigationManager.GetUriWithQueryParameters("Account/Register", new Dictionary<string, object?> { ["ReturnUrl"] = ReturnUrl }))"
+                   class="font-semibold text-brand-600 hover:underline dark:text-brand-400">@I18n.T("account.login.register")</a>
+            </p>
+        </EditForm>
+    </div>
+
+    <p class="mt-4 text-center text-xs text-slate-400">
+        <a href="Account/ForgotPassword" class="hover:text-brand-600 hover:underline dark:hover:text-brand-400">@I18n.T("account.login.forgot")</a>
+        <span class="mx-1.5">·</span>
+        <a href="Account/ResendEmailConfirmation" class="hover:text-brand-600 hover:underline dark:hover:text-brand-400">@I18n.T("account.login.resend")</a>
+    </p>
+</section>
+
+@code {
+    private string? errorMessage;
+    private EditContext editContext = default!;
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    [SupplyParameterFromForm]
+    private InputModel Input { get; set; } = new();
+
+    protected override void OnInitialized()
+    {
+        editContext = new(Input);
+    }
+
+    public async Task LoginUser()
+    {
+        // This doesn't count as a failed login if the form is invalid.
+        if (!editContext.Validate()) return;
+
+        var result = await SignInManager.PasswordSignInAsync(Input.Email, Input.Password, Input.RememberMe, lockoutOnFailure: false);
+        errorMessage = null;
+
+        if (result.Succeeded)
+        {
+            RedirectManager.RedirectTo(ReturnUrl);
+        }
+        else if (result.RequiresTwoFactor)
+        {
+            RedirectManager.RedirectTo("Account/LoginWith2fa", new() { ["returnUrl"] = ReturnUrl, ["rememberMe"] = Input.RememberMe });
+        }
+        else if (result.IsLockedOut)
+        {
+            Logger.LogWarning("User account locked out.");
+            RedirectManager.RedirectTo("Account/Lockout");
+        }
+        else
+        {
+            errorMessage = "Error: Invalid login attempt.";
+        }
+    }
+
+    private sealed class InputModel
+    {
+        [Required]
+        [EmailAddress]
+        public string Email { get; set; } = "";
+
+        [Required]
+        [DataType(DataType.Password)]
+        public string Password { get; set; } = "";
+
+        [Display(Name = "Remember me")]
+        public bool RememberMe { get; set; }
+    }
+}

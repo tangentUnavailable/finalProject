@@ -1,0 +1,141 @@
+@using CvHub.Shared
+@using CvHub.Domain
+@using Microsoft.EntityFrameworkCore
+@implements IDisposable
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider AuthState
+
+<div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+    <div class="flex items-center gap-2 border-b border-slate-200 dark:border-slate-700 p-2">
+        <input type="search" placeholder="Lookup by prefix…" value="@_prefix" @oninput="OnPrefix"
+               class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-sm" />
+        <select value="@_category" @onchange="OnCategory" class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm">
+            <option value="">All categories</option>
+            @foreach (var c in AttributeCategories.All)
+            {
+                <option value="@c" selected="@(c == _category)">@c</option>
+            }
+        </select>
+    </div>
+    <div class="max-h-64 overflow-y-auto p-1">
+        @if (_loading)
+        {
+            <div class="p-3 text-sm text-slate-400">Loading…</div>
+        }
+        else
+        {
+            @if (!string.IsNullOrEmpty(_prefix) && _recent.Any())
+            {
+                <div class="px-2 pt-1 text-[10px] uppercase tracking-wide text-slate-400">Recently used</div>
+                @foreach (var a in _recent)
+                {
+                    <button type="button" @onclick="() => Pick(a.Id)" class="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-sm hover:bg-brand-50 dark:hover:bg-slate-700">
+                        <span>@a.Name <span class="text-xs text-slate-400">· @a.Category</span></span>
+                        <span class="text-[10px] text-slate-400">@a.Type</span>
+                    </button>
+                }
+                <div class="px-2 pt-2 pb-1 text-[10px] uppercase tracking-wide text-slate-400">Matches</div>
+            }
+            @foreach (var a in _results)
+            {
+                var isPinned = _pinnedIds.Contains(a.Id);
+                <button type="button" @onclick="() => Pick(a.Id)" disabled="@isPinned" title="@(isPinned ? "Already on your profile" : "")"
+                        class="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-sm hover:bg-brand-50 disabled:cursor-default disabled:opacity-45 dark:hover:bg-slate-700">
+                    <span>@a.Name <span class="text-xs text-slate-400">· @a.Category</span></span>
+                    <span class="text-[10px] text-slate-400">@(isPinned ? "✓ on profile" : a.Type.ToString())</span>
+                </button>
+            }
+            @if (!_results.Any() && !_recent.Any())
+            {
+                <div class="p-3 text-sm text-slate-400">No matching attributes.</div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public EventCallback<int> OnPicked { get; set; }
+
+    private string _prefix = "";
+    private string _category = "";
+    private bool _loading = true;
+    private List<AttrRow> _results = [];
+    private List<AttrRow> _recent = [];
+    private HashSet<int> _pinnedIds = [];
+    private System.Timers.Timer? _debounce;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _debounce = new System.Timers.Timer(250) { AutoReset = false };
+        _debounce.Elapsed += async (_, _) => await InvokeAsync(Search);
+        await Search();
+    }
+
+    private void OnPrefix(ChangeEventArgs e)
+    {
+        _prefix = e.Value?.ToString() ?? "";
+        _debounce!.Stop();
+        _debounce.Start();
+    }
+
+    private void OnCategory(ChangeEventArgs e) { _category = e.Value?.ToString() ?? ""; _ = Search(); }
+
+    private async Task Search()
+    {
+        _loading = true;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+
+            // Prefix lookup (case-insensitive) + optional category filter. Indexed Name match.
+            var query = db.Attributes.AsNoTracking();
+            if (!string.IsNullOrEmpty(_category)) query = query.Where(a => a.Category == _category);
+            if (!string.IsNullOrEmpty(_prefix)) query = query.Where(a => EF.Functions.ILike(a.Name, _prefix + "%"));
+
+            _results = await query.OrderBy(a => a.Name).Take(30)
+                .Select(a => new AttrRow(a.Id, a.Name, a.Category, a.Type))
+                .ToListAsync();
+
+            // Already-pinned attributes: shown with a check and picking them is a no-op.
+            _pinnedIds = (await db.ProfileAttributes.AsNoTracking()
+                .Where(pa => pa.UserId == _userId).Select(pa => pa.AttributeId).ToListAsync())
+                .ToHashSet();
+
+            // Recently used = attributes from the RecentAttributes table (ordered by UsedAt).
+            if (!string.IsNullOrEmpty(_prefix))
+            {
+                _recent = await db.RecentAttributes.AsNoTracking()
+                    .Where(r => r.UserId == _userId)
+                    .OrderByDescending(r => r.UsedAt)
+                    .Take(5)
+                    .Join(db.Attributes, r => r.AttributeId, a => a.Id, (r, a) => new AttrRow(a.Id, a.Name, a.Category, a.Type))
+                    .ToListAsync();
+            }
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private string? _userId;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_userId is null)
+        {
+            var auth = await AuthState.GetAuthenticationStateAsync();
+            _userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        }
+    }
+
+    private async Task Pick(int id)
+    {
+        await OnPicked.InvokeAsync(id);
+    }
+
+    public void Dispose() => _debounce?.Dispose();
+
+    public sealed record AttrRow(int Id, string Name, string Category, AttributeType Type);
+}

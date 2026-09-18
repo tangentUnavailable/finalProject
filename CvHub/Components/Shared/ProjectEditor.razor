@@ -1,0 +1,84 @@
+@using CvHub.Shared
+
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @onclick="OnCancel">
+    <div class="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-800 p-5 shadow-2xl" @onclick:stopPropagation="true">
+        <h3 class="mb-4 text-lg font-semibold">@(Project.Id == 0 ? "New Project" : "Edit Project")</h3>
+
+        <label class="mb-3 block text-sm">
+            <span class="mb-1 block font-medium">Name</span>
+            <input type="text" value="@Project.Name" @oninput="OnName"
+                   class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-sm" />
+        </label>
+
+        <div class="mb-3 grid grid-cols-2 gap-3 text-sm">
+            <label>
+                <span class="mb-1 block font-medium">Start</span>
+                <input type="date" value="@Iso(Project.Start)" @onchange="e => Project = Project with { Start = ParseDate(e.Value) }"
+                       class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-sm" />
+            </label>
+            <label>
+                <span class="mb-1 block font-medium">End</span>
+                <input type="date" value="@Iso(Project.End)" @onchange="e => Project = Project with { End = ParseDate(e.Value) }"
+                       class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-sm" />
+            </label>
+        </div>
+
+        <label class="mb-3 block text-sm">
+            <span class="mb-1 block font-medium">Description <span class="text-xs font-normal text-slate-400">(Markdown)</span></span>
+            <textarea rows="5" value="@Project.Description" @oninput="OnDescription"
+                      class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-sm"></textarea>
+        </label>
+
+        <label class="mb-4 block text-sm">
+            <span class="mb-1 block font-medium">Technology tags</span>
+            <input type="text" value="@TagsText" @oninput="OnTags"
+                   placeholder="e.g. Python, Docker (comma separated; suggestions while typing)"
+                   class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-sm" />
+            <div class="mt-1 flex flex-wrap gap-1">
+                @foreach (var s in _suggestions.Take(6))
+                {
+                    <button type="button" @onclick="() => AddSuggestion(s)" class="rounded-full bg-slate-100 dark:bg-slate-700 px-2 py-0.5 text-xs hover:bg-brand-100 dark:hover:bg-slate-600">@s</button>
+                }
+            </div>
+        </label>
+
+        <div class="flex justify-end gap-2">
+            <button type="button" @onclick="OnCancel" class="rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button>
+            <button type="button" @onclick="OnSave" disabled="@string.IsNullOrWhiteSpace(Project.Name)" class="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed">Save</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public ProjectDto Project { get; set; } = default!;
+    [Parameter] public EventCallback<ProjectDto> OnSaved { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+    [Parameter] public List<string> TagsAll { get; set; } = [];
+
+    private List<string> _suggestions = [];
+
+    private string TagsText => string.Join(", ", Project.Tags);
+
+    private static string Iso(DateOnly? d) => d?.ToString("yyyy-MM-dd") ?? "";
+
+    private static DateOnly? ParseDate(object? v) => DateOnly.TryParse(v?.ToString(), out var d) ? d : null;
+
+    private void OnName(ChangeEventArgs e) => Project = Project with { Name = e.Value?.ToString() ?? "" };
+    private void OnDescription(ChangeEventArgs e) => Project = Project with { Description = e.Value?.ToString() ?? "" };
+
+    private void OnTags(ChangeEventArgs e)
+    {
+        var raw = e.Value?.ToString() ?? "";
+        Project = Project with { Tags = raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) };
+        var last = raw.Split(',').LastOrDefault()?.Trim().ToLowerInvariant() ?? "";
+        _suggestions = last.Length == 0 ? [] : TagsAll.Where(t => t.ToLowerInvariant().StartsWith(last) && !Project.Tags.Contains(t)).ToList();
+    }
+
+    private void AddSuggestion(string s)
+    {
+        Project = Project with { Tags = [.. Project.Tags, s] };
+        _suggestions.Remove(s);
+    }
+
+    private async Task OnSave() => await OnSaved.InvokeAsync(Project);
+}

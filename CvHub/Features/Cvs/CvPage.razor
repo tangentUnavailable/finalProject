@@ -1,0 +1,371 @@
+@page "/cv/{Id:int}"
+@attribute [Authorize]
+@using System
+@using CvHub.Shared
+@using CvHub.Features.Cvs
+@using CvHub.Features.Profile
+@using CvHub.Infrastructure
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>CV — CvHub</PageTitle>
+
+@if (_view is null)
+{
+    <div class="text-slate-400">@I18n.T("common.loading")</div>
+}
+else
+{
+    <div class="mb-4 flex flex-wrap items-center gap-3">
+        <a href="positions/@_view.PositionId" class="text-sm text-brand-600 dark:text-brand-400 hover:underline">← @_view.PositionTitle</a>
+        <span class="rounded-full px-2.5 py-0.5 text-xs font-semibold @(StatusBadgeClass)">@StatusText</span>
+        @if (_canEdit && _view.Status == CvStatus.Draft)
+        {
+            <button type="button" @onclick="Publish" disabled="@(_view.MissingRequired > 0)"
+                    class="ml-auto rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    title="@(_view.MissingRequired > 0 ? $"{_view.MissingRequired} required field(s) still empty" : "Make visible to recruiters")">
+                @I18n.T("cv.publish")
+            </button>
+        }
+        @if (_isRecruiterOrAdmin)
+        {
+            <button type="button" @onclick="ToggleLike"
+                    class="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-sm hover:border-rose-400">
+                @(_liked ? "❤️" : "🤍") @_likeCount
+            </button>
+        }
+    </div>
+
+    @if (_hiddenForCandidate)
+    {
+        <div class="mb-4 rounded-xl bg-amber-50 dark:bg-amber-900/30 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+            @I18n.T("cv.hidden") — content shown for reference only; visible again if access is restored.
+        </div>
+    }
+
+    <article class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-6 shadow-sm">
+        <header class="border-b border-slate-200 dark:border-slate-700 pb-4">
+            <div class="flex items-center gap-4">
+                @if (_photoField is not null && !string.IsNullOrEmpty(_photoField.ImageUrl))
+                {
+                    <img src="@_photoField.ImageUrl" class="h-20 w-20 rounded-full object-cover" alt="photo" />
+                }
+                <div>
+                    <h1 class="text-xl font-bold">@(_nameFirst?.StringValue ?? "") @(_nameLast?.StringValue ?? "")</h1>
+                    <div class="text-sm text-slate-500">@_view.PositionTitle</div>
+                    @if (_headline is not null && !string.IsNullOrWhiteSpace(_headline.StringValue))
+                    {
+                        <div class="text-sm font-medium text-brand-600 dark:text-brand-400">@_headline.StringValue</div>
+                    }
+                </div>
+                @if (_isRecruiterOrAdmin)
+                {
+                    <div class="ml-auto text-xs text-slate-400">@_likeCount @I18n.T("cv.likes")</div>
+                }
+            </div>
+        </header>
+
+        @foreach (var group in _sections)
+        {
+            <section class="mt-5">
+                <h2 class="mb-2 text-sm font-bold uppercase tracking-wide text-slate-400">@group.Key</h2>
+                <dl class="grid gap-3 sm:grid-cols-2">
+                    @foreach (var f in group)
+                    {
+                        <div class="@EmptyClass(f)">
+                            @if (_canEdit)
+                            {
+                                <AttributeEditor Field="f" ValueChanged="OnFieldChanged" />
+                            }
+                            else
+                            {
+                                <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3">
+                                    <div class="mb-1 flex items-baseline justify-between gap-2">
+                                        <label class="text-sm font-semibold">@f.Name</label>
+                                        @if (!string.Equals(f.Category, group.Key, StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            <span class="text-[10px] uppercase tracking-wide text-slate-400">@f.Category</span>
+                                        }
+                                    </div>
+                                    <CvFieldValue Field="f" />
+                                </div>
+                            }
+                        </div>
+                    }
+                </dl>
+            </section>
+        }
+
+        @if (_canEdit)
+        {
+            <section class="mt-6 rounded-xl border border-dashed border-slate-300 dark:border-slate-600 p-3">
+                <h2 class="mb-2 text-sm font-bold uppercase tracking-wide text-slate-400">@I18n.T("cv.projects") (max @_maxProjects)</h2>
+                @if (_candidateProjects.Count == 0)
+                {
+                    <p class="text-sm text-slate-400">@I18n.T("cv.noProjects")</p>
+                }
+                else
+                {
+                    <div class="flex flex-wrap gap-2">
+                        @foreach (var pr in _candidateProjects)
+                        {
+                            var sel = _selectedProjectIds.Contains(pr.Id);
+                            <button type="button" @onclick="() => ToggleProject(pr.Id)"
+                                    class="rounded-full px-3 py-1 text-sm border transition-colors @(sel
+                                        ? "bg-brand-600 text-white border-brand-600"
+                                        : "bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 hover:border-brand-400")">
+                                @pr.Name
+                            </button>
+                        }
+                    </div>
+                }
+            </section>
+        }
+
+        @if (_view.Projects.Any())
+        {
+            <section class="mt-6">
+                <h2 class="mb-2 text-sm font-bold uppercase tracking-wide text-slate-400">Projects</h2>
+                <div class="space-y-3">
+                    @foreach (var p in _view.Projects)
+                    {
+                        <div class="rounded-xl border border-slate-200 dark:border-slate-700 p-3">
+                            <div class="flex items-baseline justify-between">
+                                <div class="font-semibold text-sm">@p.Name</div>
+                                <div class="text-xs text-slate-400">@(p.Start is null && p.End is null ? "" : $"{(p.Start?.ToString("MMM yyyy") ?? "?")} — {(p.End?.ToString("MMM yyyy") ?? "present")}")</div>
+                            </div>
+                            <div class="mt-1 flex flex-wrap gap-1">
+                                @foreach (var t in p.Tags)
+                                {
+                                    <span class="rounded-full bg-brand-50 dark:bg-brand-900/40 px-2 py-0.5 text-xs text-brand-700 dark:text-brand-300">@t</span>
+                                }
+                            </div>
+                            <MarkdownDisplay Markdown="@p.Description" Class="mt-1" />
+                        </div>
+                    }
+                </div>
+            </section>
+        }
+    </article>
+
+    @if (_publishError is not null)
+    {
+        <div class="mt-3 rounded-lg bg-rose-50 dark:bg-rose-900/30 px-3 py-2 text-sm text-rose-600 dark:text-rose-400">@_publishError</div>
+    }
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private CvViewDto? _view;
+    private bool _canEdit;
+    private string _userId = "";
+    private bool _isRecruiterOrAdmin;
+    private bool _hiddenForCandidate;
+    private bool _liked;
+    private int _likeCount;
+    private string? _publishError;
+    private CvFieldDto? _photoField;
+    private CvFieldDto? _nameFirst;
+    private CvFieldDto? _nameLast;
+    private CvFieldDto? _headline;
+    private List<IGrouping<string, CvFieldDto>> _sections = [];
+    private List<ProjectDto> _candidateProjects = [];
+    private HashSet<int> _selectedProjectIds = [];
+    private int _maxProjects = 5;
+
+    private string StatusBadgeClass => _view!.Status == CvStatus.Published
+        ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400"
+        : "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400";
+
+    private string StatusText => _view!.Status == CvStatus.Published ? I18n.T("cv.published") : I18n.T("cv.draft");
+
+    private static string EmptyClass(CvFieldDto f) => f.IsEmpty && f.Required ? "ring-1 ring-rose-400 rounded-xl" : "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var uid = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        _userId = uid ?? "";
+        var isAdmin = auth.User.IsInRole("Admin");
+        var isRecruiter = auth.User.IsInRole("Recruiter");
+        _isRecruiterOrAdmin = isRecruiter || isAdmin;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var cv = await db.Cvs.Include(c => c.Position).FirstOrDefaultAsync(c => c.Id == Id);
+        if (cv is null) { Nav.NavigateTo("not-found"); return; }
+
+        _canEdit = cv.UserId == uid || isAdmin;
+        if (cv.UserId != uid && !isAdmin && !isRecruiter) { Nav.NavigateTo(""); return; }
+
+        // Recruiters (and admins) only see published CVs; candidates always see their own.
+        if (cv.Status != CvStatus.Published && cv.UserId != uid && !isAdmin) { Nav.NavigateTo(""); return; }
+
+        _view = await CvComposer.ComposeAsync(db, cv);
+        if (_view is null) { Nav.NavigateTo("not-found"); return; }
+
+        // Hidden-if-lost-access (UI-level only; content is composed live).
+        if (cv.UserId == uid && !isAdmin && !isRecruiter && cv.Position.Access == PositionAccess.Restricted)
+        {
+            var values = await db.AttributeValues.Where(v => v.UserId == cv.UserId).ToDictionaryAsync(v => v.AttributeId);
+            var pos = await db.Positions.Include(p => p.Filters).ThenInclude(f => f.Attribute).FirstAsync(p => p.Id == cv.PositionId);
+            _hiddenForCandidate = !AccessRules.HasAccess(pos, values, false);
+        }
+
+        _photoField = _view.Fields.FirstOrDefault(f => f.Name == BuiltInAttributeNames.Photo);
+        _nameFirst = _view.Fields.FirstOrDefault(f => f.Name == BuiltInAttributeNames.FirstName);
+        _nameLast = _view.Fields.FirstOrDefault(f => f.Name == BuiltInAttributeNames.LastName);
+        _headline = _view.Fields.FirstOrDefault(f => f.Name == BuiltInAttributeNames.Headline);
+        _sections = _view.Fields
+            .Where(f => f.Name is not (BuiltInAttributeNames.Photo or BuiltInAttributeNames.FirstName or BuiltInAttributeNames.LastName))
+            .GroupBy(f => f.Section ?? "Details").ToList();
+
+        if (_isRecruiterOrAdmin)
+        {
+            _likeCount = await db.Likes.CountAsync(l => l.CvId == Id);
+            _liked = await db.Likes.AnyAsync(l => l.CvId == Id && l.UserId == uid);
+        }
+
+        if (_canEdit)
+        {
+            _maxProjects = cv.Position.MaxProjects > 0 ? cv.Position.MaxProjects : 5;
+            _candidateProjects = await db.Projects.AsNoTracking()
+                .Where(p => p.UserId == cv.UserId).OrderBy(p => p.SortOrder)
+                .Select(p => new ProjectDto(p.Id, p.Name, p.PeriodStart, p.PeriodEnd, p.Description,
+                    p.Tags.Select(t => t.Tag.Name).ToArray()))
+                .ToListAsync();
+            _selectedProjectIds = (await db.CvProjects.Where(cp => cp.CvId == Id).Select(cp => cp.ProjectId).ToListAsync())
+                .ToHashSet();
+        }
+    }
+
+    private async Task ToggleProject(int projectId)
+    {
+        if (_selectedProjectIds.Contains(projectId)) _selectedProjectIds.Remove(projectId);
+        else if (_selectedProjectIds.Count < _maxProjects) _selectedProjectIds.Add(projectId);
+        else return; // position cap reached
+
+        // Optimistic UI; server (shared helper) enforces the cap too.
+        await using var db = await DbFactory.CreateDbContextAsync();
+        await CvService.UpdateProjectsAsync(db, Id, _selectedProjectIds.ToList());
+        await RefreshView();
+    }
+
+    private async Task RefreshView()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var cv = await db.Cvs.AsNoTracking().FirstOrDefaultAsync(c => c.Id == Id);
+        if (cv is not null) _view = await CvComposer.ComposeAsync(db, cv) ?? _view;
+    }
+
+    private async Task OnFieldChanged(CvFieldDto f)
+    {
+        // Editing a CV field updates the single master value in the profile.
+        var wasEmpty = f.IsEmpty;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var def = await db.Attributes.FirstOrDefaultAsync(a => a.Id == f.AttributeId);
+        if (def is null) return;
+
+        var value = await db.AttributeValues.FirstOrDefaultAsync(v => v.UserId == _userId && v.AttributeId == f.AttributeId);
+        var isNew = value is null;
+
+        // Optimistic locking via xmin: the client echoes the version it read.
+        if (!isNew && f.Version is uint expected)
+        {
+            var current = db.Entry(value!).Property("xmin").CurrentValue as uint?;
+            if (current is uint cur && cur != expected)
+            {
+                _publishError = I18n.T("profile.conflict");
+                // Adopt the server state for this field.
+                UpdateField(new(f.AttributeId, cur, f.IsEmpty));
+                await RefreshView();
+                return;
+            }
+        }
+
+        if (isNew)
+        {
+            value = new AttributeValue { UserId = _userId, AttributeId = f.AttributeId };
+            db.AttributeValues.Add(value);
+        }
+
+        value!.StringValue = f.StringValue;
+        value.TextValue = f.TextValue;
+        value.ImageUrl = f.ImageUrl;
+        value.NumericValue = f.NumericValue;
+        value.DateValue = f.DateValue;
+        value.PeriodStart = f.PeriodStart;
+        value.PeriodEnd = f.PeriodEnd;
+        value.BoolValue = f.BoolValue;
+        value.OptionValue = f.OptionValue;
+
+        try
+        {
+            await db.SaveChangesAsync();
+        }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException)
+        {
+            _publishError = I18n.T("profile.conflict");
+            await RefreshView();
+            return;
+        }
+
+        var newVersion = db.Entry(value).Property("xmin").CurrentValue as uint?;
+        var isEmptyNow = CvComposer.IsEmpty(value, def.Type);
+
+        // Update the field in the view with new version and IsEmpty status
+        UpdateField(new(f.AttributeId, newVersion, isEmptyNow));
+        
+        // If this was a newly created value (not previously pinned to profile), ensure it's in the profile
+        if (isNew)
+        {
+            await CvComposer.EnsureProfileAttributeAsync(db, _userId, f.AttributeId);
+        }
+
+        if (wasEmpty && !isEmptyNow)
+            _view = _view! with { MissingRequired = Math.Max(0, _view.MissingRequired - 1) };
+    }
+
+    private void UpdateField((int AttrId, uint? Version, bool IsEmpty) patch)
+    {
+        _view = _view with { Fields = _view!.Fields.Select(f => f.AttributeId == patch.AttrId ? f with { Version = patch.Version, IsEmpty = patch.IsEmpty } : f).ToList() };
+        _sections = _view.Fields
+            .Where(f => f.Name is not (BuiltInAttributeNames.Photo or BuiltInAttributeNames.FirstName or BuiltInAttributeNames.LastName))
+            .GroupBy(f => f.Section ?? "Details").ToList();
+    }    private async Task Publish()
+    {
+        _publishError = null;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var (ok, error) = await CvService.PublishAsync(db, Id);
+        if (ok)
+        {
+            _view = _view! with { Status = CvStatus.Published };
+            StateHasChanged();
+        }
+        else
+        {
+            _publishError = error;
+        }
+    }
+
+    private async Task ToggleLike()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var uid = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (uid is null) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var like = await db.Likes.FirstOrDefaultAsync(l => l.CvId == Id && l.UserId == uid);
+        if (like is not null) db.Likes.Remove(like);
+        else db.Likes.Add(new CvLike { CvId = Id, UserId = uid, CreatedAt = DateTimeOffset.UtcNow });
+        await db.SaveChangesAsync();
+        _liked = like is null;
+        _likeCount = await db.Likes.CountAsync(l => l.CvId == Id);
+    }
+
+    public void Dispose() { }
+
+    private sealed record SaveResult(uint? Version, bool Created);
+}

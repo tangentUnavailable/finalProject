@@ -1,0 +1,87 @@
+@using CvHub.Shared
+@if (Field is null)
+{
+    <div class="rounded-xl border border-dashed border-slate-300 p-3 text-sm text-slate-400">…</div>
+}
+else
+{
+<div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3">
+    <div class="mb-1 flex items-baseline justify-between gap-2">
+        <label class="text-sm font-semibold">@Field.Name</label>
+        <span class="text-[10px] uppercase tracking-wide text-slate-400">@Field.Category</span>
+    </div>
+    @if (Field.Type == AttributeType.String)
+    {
+        <input type="text" value="@(Field.StringValue ?? "")" @oninput="OnString"
+               class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+    }
+    else if (Field.Type == AttributeType.Text)
+    {
+        <textarea rows="4" value="@(Field.TextValue ?? "")" @oninput="OnText"
+                  class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"></textarea>
+        <MarkdownDisplay Markdown="@Field.TextValue" Class="mt-1 border-t border-dashed border-slate-200 dark:border-slate-700 pt-1" />
+    }
+    else if (Field.Type == AttributeType.Image)
+    {
+        <ImageUploader Url="@Field.ImageUrl" UrlChanged="OnImage" />
+    }
+    else if (Field.Type == AttributeType.Numeric)
+    {
+        <input type="number" step="any" value="@(Field.NumericValue?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "")" @onchange="OnNumeric"
+               class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+    }
+    else if (Field.Type == AttributeType.Date)
+    {
+        <input type="date" value="@(Field.DateValue?.ToString("yyyy-MM-dd") ?? "")" @onchange="OnDate"
+               class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+    }
+    else if (Field.Type == AttributeType.Period)
+    {
+        <div class="flex items-center gap-2">
+            <input type="date" value="@(Field.PeriodStart?.ToString("yyyy-MM-dd") ?? "")" @onchange="e => OnPeriod(e, true)" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-sm" />
+            <span class="text-slate-400">→</span>
+            <input type="date" value="@(Field.PeriodEnd?.ToString("yyyy-MM-dd") ?? "")" @onchange="e => OnPeriod(e, false)" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-sm" />
+        </div>
+    }
+    else if (Field.Type == AttributeType.Boolean)
+    {
+        <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked="@(Field.BoolValue ? "checked" : null)" @onchange="OnBool" class="h-4 w-4 rounded accent-brand-600" />
+            <span>@Field.Name</span>
+        </label>
+    }
+    else if (Field.Type == AttributeType.OneOfMany)
+    {
+        <select value="@(Field.OptionValue ?? "")" @onchange="OnOption"
+                class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-sm">
+            <option value=""></option>
+            @foreach (var o in Field.Options)
+            {
+                <option value="@o" selected="@(o == Field.OptionValue)">@o</option>
+            }
+        </select>
+    }
+</div>
+}
+
+@code {
+    [Parameter, EditorRequired] public CvFieldDto Field { get; set; } = default!;
+    [Parameter] public EventCallback<CvFieldDto> ValueChanged { get; set; }
+
+    private void Touch() => ValueChanged.InvokeAsync(Field);
+
+    private void OnString(ChangeEventArgs e) { Field = Field with { StringValue = e.Value?.ToString(), IsEmpty = string.IsNullOrWhiteSpace(e.Value?.ToString()) }; Touch(); }
+    private void OnText(ChangeEventArgs e) { Field = Field with { TextValue = e.Value?.ToString(), IsEmpty = string.IsNullOrWhiteSpace(e.Value?.ToString()) }; Touch(); }
+    private void OnImage(string? url) { Field = Field with { ImageUrl = url, IsEmpty = string.IsNullOrWhiteSpace(url) }; Touch(); }
+    private void OnNumeric(ChangeEventArgs e) { Field = Field with { NumericValue = double.TryParse(e.Value?.ToString(), System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : null, IsEmpty = !double.TryParse(e.Value?.ToString(), out _) }; Touch(); }
+    private void OnDate(ChangeEventArgs e) { Field = Field with { DateValue = DateOnly.TryParse(e.Value?.ToString(), out var d) ? d : null, IsEmpty = !DateOnly.TryParse(e.Value?.ToString(), out _) }; Touch(); }
+    private void OnPeriod(ChangeEventArgs e, bool start)
+    {
+        var v = DateOnly.TryParse(e.Value?.ToString(), out var d) ? d : (DateOnly?)null;
+        Field = start ? Field with { PeriodStart = v } : Field with { PeriodEnd = v };
+        Field = Field with { IsEmpty = Field.PeriodStart is null && Field.PeriodEnd is null };
+        Touch();
+    }
+    private void OnBool(ChangeEventArgs e) { Field = Field with { BoolValue = e.Value is true, IsEmpty = false }; Touch(); }
+    private void OnOption(ChangeEventArgs e) { Field = Field with { OptionValue = e.Value?.ToString(), IsEmpty = string.IsNullOrWhiteSpace(e.Value?.ToString()) }; Touch(); }
+}
