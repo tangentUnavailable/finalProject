@@ -86,7 +86,13 @@ if (!string.IsNullOrWhiteSpace(fbId) && !string.IsNullOrWhiteSpace(fbSecret))
 }
 
 // ---------- Database (PostgreSQL) ----------
+// Connection string order of precedence:
+// 1. CONNECTION_STRINGS__DEFAULTCONNECTION env var (standard .NET)
+// 2. SUPABASE_CONNECTION_STRING env var (platform override)
+// 3. appsettings.json DefaultConnection
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? Environment.GetEnvironmentVariable("SUPABASE_CONNECTION_STRING")
+    ?? Environment.GetEnvironmentVariable("DATABASE_URL")
     ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
 // AddDbContextFactory also registers ApplicationDbContext itself as a scoped service
 // (used by Identity and the feature APIs), keeping the singleton factory consistent.

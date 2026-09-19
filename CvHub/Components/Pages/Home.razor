@@ -122,55 +122,64 @@
     private List<PopularRow> _popular = [];
     private List<TagCount> _tags = [];
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        var db = DbFactory.CreateDbContext();
-        try
-        {
-            var now = DateTimeOffset.UtcNow;
-            _stats = new StatsDto
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var now = DateTimeOffset.UtcNow;
+
+        // Consolidate the two CV counts into one aggregate query (COUNT(CASE WHEN ...))
+        // and the two role counts into one JOIN+GROUP BY — replacing 5 blocking queries.
+        var cvAgg = await db.Cvs
+            .GroupBy(_ => 1)
+            .Select(g => new
             {
-                Cvs24h = db.Cvs.Count(c => c.CreatedAt >= now.AddDays(-1)),
-                Positions = db.Positions.Count(),
-                Candidates = db.Users.Count(),
-                Recruiters = 0,
-                SubmittedCvs = db.Cvs.Count(c => c.Status == CvStatus.Published),
-            };
+                Cvs24h = g.Count(c => c.CreatedAt >= now.AddDays(-1)),
+                SubmittedCvs = g.Count(c => c.Status == CvStatus.Published)
+            })
+            .FirstOrDefaultAsync();
 
-            var candidateRoleId = db.Roles.Where(r => r.Name == "Candidate").Select(r => r.Id).FirstOrDefault();
-            var recruiterRoleId = db.Roles.Where(r => r.Name == "Recruiter").Select(r => r.Id).FirstOrDefault();
-            _stats.Candidates = db.UserRoles.Count(ur => ur.RoleId == candidateRoleId);
-            _stats.Recruiters = db.UserRoles.Count(ur => ur.RoleId == recruiterRoleId);
-
-            _latest = db.Positions
-                .OrderByDescending(p => p.UpdatedAt)
-                .Take(8)
-                .Select(p => new PositionRow { Id = p.Id, Title = p.Title, Company = p.Company, Level = p.Level, UpdatedAt = p.UpdatedAt })
-                .ToList();
-
-            _popular = db.Positions
-                .Where(p => p.Cvs.Any(c => c.Status == CvStatus.Published))
-                .Select(p => new PopularRow
-                {
-                    Id = p.Id,
-                    Title = p.Title,
-                    CvCount = p.Cvs.Count(c => c.Status == CvStatus.Published),
-                })
-                .OrderByDescending(p => p.CvCount)
-                .Take(5)
-                .ToList();
-
-            _tags = db.Tags
-                .Select(t => new TagCount { Name = t.Name, Count = t.Projects.Count })
-                .Where(t => t.Count > 0)
-                .OrderByDescending(t => t.Count)
-                .Take(30)
-                .ToList();
-        }
-        finally
+        _stats = new StatsDto
         {
-            db.Dispose();
-        }
+            Cvs24h = cvAgg?.Cvs24h ?? 0,
+            Positions = await db.Positions.CountAsync(),
+            Candidates = 0,
+            Recruiters = 0,
+            SubmittedCvs = cvAgg?.SubmittedCvs ?? 0,
+        };
+
+        var roleCounts = await db.UserRoles
+            .Join(db.Roles, ur => ur.RoleId, r => r.Id, (ur, r) => r.Name!)
+            .Where(name => name == "Candidate" || name == "Recruiter")
+            .GroupBy(name => name)
+            .ToDictionaryAsync(g => g.Key, g => g.Count());
+        _stats.Candidates = roleCounts.GetValueOrDefault("Candidate");
+        _stats.Recruiters = roleCounts.GetValueOrDefault("Recruiter");
+
+        _latest = await db.Positions
+            .OrderByDescending(p => p.UpdatedAt)
+            .Take(8)
+            .Select(p => new PositionRow { Id = p.Id, Title = p.Title, Company = p.Company, Level = p.Level, UpdatedAt = p.UpdatedAt })
+            .ToListAsync();
+
+        _popular = await db.Positions
+            .Where(p => p.Cvs.Any(c => c.Status == CvStatus.Published))
+            .Select(p => new PopularRow
+            {
+                Id = p.Id,
+                Title = p.Title,
+                CvCount = p.Cvs.Count(c => c.Status == CvStatus.Published),
+            })
+            .OrderByDescending(p => p.CvCount)
+            .Take(5)
+            .ToListAsync();
+
+        _tags = await db.Tags
+            .Select(t => new TagCount { Name = t.Name, Count = t.Projects.Count })
+            .Where(t => t.Count > 0)
+            .OrderByDescending(t => t.Count)
+            .Take(30)
+            .ToListAsync();
     }
 
     private sealed class StatsDto

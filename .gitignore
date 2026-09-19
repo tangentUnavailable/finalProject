@@ -35,10 +35,14 @@ cookies.txt
 # Compiled CSS
 CvHub/wwwroot/app.css
 
-# User secrets / local config
-appsettings.Development.json
-appsettings.Local.json
-appsettings.*.local.json
+# Publish output (build artifacts)
+publish/
+**/publish/
+
+# Server runtime config (may contain connection strings / secrets).
+# Local dev copies stay on disk; never committed.
+/CvHub/appsettings.json
+/CvHub/appsettings.*.json
 
 # Logs
 *.log

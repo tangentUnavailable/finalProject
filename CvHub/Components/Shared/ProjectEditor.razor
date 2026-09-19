@@ -2,37 +2,37 @@
 
 <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @onclick="OnCancel">
     <div class="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-800 p-5 shadow-2xl" @onclick:stopPropagation="true">
-        <h3 class="mb-4 text-lg font-semibold">@(Project.Id == 0 ? "New Project" : "Edit Project")</h3>
+        <h3 class="mb-4 text-lg font-semibold">@(Project.Id == 0 ? I18n.T("profile.newproject") : I18n.T("project.edit"))</h3>
 
         <label class="mb-3 block text-sm">
-            <span class="mb-1 block font-medium">Name</span>
+            <span class="mb-1 block font-medium">@I18n.T("project.name")</span>
             <input type="text" value="@Project.Name" @oninput="OnName"
                    class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-sm" />
         </label>
 
         <div class="mb-3 grid grid-cols-2 gap-3 text-sm">
             <label>
-                <span class="mb-1 block font-medium">Start</span>
+                <span class="mb-1 block font-medium">@I18n.T("project.start")</span>
                 <input type="date" value="@Iso(Project.Start)" @onchange="e => Project = Project with { Start = ParseDate(e.Value) }"
                        class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-sm" />
             </label>
             <label>
-                <span class="mb-1 block font-medium">End</span>
+                <span class="mb-1 block font-medium">@I18n.T("project.end")</span>
                 <input type="date" value="@Iso(Project.End)" @onchange="e => Project = Project with { End = ParseDate(e.Value) }"
                        class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-sm" />
             </label>
         </div>
 
         <label class="mb-3 block text-sm">
-            <span class="mb-1 block font-medium">Description <span class="text-xs font-normal text-slate-400">(Markdown)</span></span>
+            <span class="mb-1 block font-medium">@I18n.T("project.description") <span class="text-xs font-normal text-slate-400">(Markdown)</span></span>
             <textarea rows="5" value="@Project.Description" @oninput="OnDescription"
                       class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-sm"></textarea>
         </label>
 
         <label class="mb-4 block text-sm">
-            <span class="mb-1 block font-medium">Technology tags</span>
+            <span class="mb-1 block font-medium">@I18n.T("project.tags")</span>
             <input type="text" value="@TagsText" @oninput="OnTags"
-                   placeholder="e.g. Python, Docker (comma separated; suggestions while typing)"
+                   placeholder="@I18n.T("project.tagsHint")"
                    class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-sm" />
             <div class="mt-1 flex flex-wrap gap-1">
                 @foreach (var s in _suggestions.Take(6))
@@ -43,8 +43,8 @@
         </label>
 
         <div class="flex justify-end gap-2">
-            <button type="button" @onclick="OnCancel" class="rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button>
-            <button type="button" @onclick="OnSave" disabled="@string.IsNullOrWhiteSpace(Project.Name)" class="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed">Save</button>
+            <button type="button" @onclick="OnCancel" class="rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-700">@I18n.T("common.cancel")</button>
+            <button type="button" @onclick="OnSave" disabled="@string.IsNullOrWhiteSpace(Project.Name)" class="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed">@I18n.T("common.save")</button>
         </div>
     </div>
 </div>

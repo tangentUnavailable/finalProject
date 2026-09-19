@@ -21,7 +21,7 @@
 }
 else
 {
-    @foreach (var (label, hits) in new[] { ("Positions", (IReadOnlyList<SearchEndpoints.Hit>?)_results?.Positions), ("Attributes", _results?.Attributes), ("Tags", _results?.Tags), ("CVs", _results?.Cvs) })
+    @foreach (var (label, hits) in new[] { (I18n.T("search.section.positions"), (IReadOnlyList<SearchEndpoints.Hit>?)_results?.Positions), (I18n.T("search.section.attributes"), _results?.Attributes), (I18n.T("search.section.tags"), _results?.Tags), (I18n.T("search.section.cvs"), _results?.Cvs) })
     {
         @if (hits is { Count: > 0 })
         {
@@ -39,7 +39,7 @@ else
                                         <span class="ml-2 text-xs text-slate-400">@h.Subtitle</span>
                                     }
                                 </td>
-                                <td class="px-4 py-2 text-right text-xs uppercase text-slate-400">@h.Kind</td>
+                                <td class="px-4 py-2 text-right text-xs uppercase text-slate-400">@(h.Kind == "cv" ? $"❤️ {h.Likes}" : h.Kind)</td>
                             </tr>
                         }
                     </tbody>
@@ -49,7 +49,7 @@ else
     }
     @if ((_results?.Positions.Count ?? 0) == 0 && (_results?.Attributes.Count ?? 0) == 0 && (_results?.Tags.Count ?? 0) == 0)
     {
-        <div class="rounded-xl border border-dashed border-slate-300 dark:border-slate-600 p-8 text-center text-slate-400">Nothing found.</div>
+        <div class="rounded-xl border border-dashed border-slate-300 dark:border-slate-600 p-8 text-center text-slate-400">@I18n.T("search.nothing")</div>
     }
 }
 

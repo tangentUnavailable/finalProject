@@ -10,6 +10,7 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject AuthenticationStateProvider AuthState
 @inject NavigationManager Nav
+@inject IJSRuntime JS
 @implements IDisposable
 
 <PageTitle>My Profile — CvHub</PageTitle>
@@ -92,7 +93,7 @@ else
             }
             @if (!_info_fields.Any())
             {
-                <div class="text-sm text-slate-400">No attributes yet — use "@I18n.T("profile.addattr")" above.</div>
+                <div class="text-sm text-slate-400">@I18n.T("profile.noAttributes")</div>
             }
         </div>
     }
@@ -109,7 +110,7 @@ else
             }
             @if (!_projects.Any())
             {
-                <div class="text-sm text-slate-400">No projects yet.</div>
+                <div class="text-sm text-slate-400">@I18n.T("profile.noProjects")</div>
             }
         </div>
     }
@@ -127,7 +128,7 @@ else
                 <tbody>
                     @foreach (var c in _cvs)
                     {
-                        <tr class="border-b border-slate-100 dark:border-slate-700/50 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-700/30">
+                        <tr class="group border-b border-slate-100 dark:border-slate-700/50 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-700/30">
                             <td class="px-4 py-2">
                                 @if (c.Hidden)
                                 {
@@ -141,6 +142,11 @@ else
                                         <span class="ml-2 rounded bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 text-xs text-amber-700 dark:text-amber-400">@I18n.T("cv.draft")</span>
                                     }
                                 }
+                                @* Appearing context action on row hover (no per-row button column) *@
+                                <span class="ml-2 hidden gap-1 group-hover:inline-flex">
+                                    <button type="button" @onclick="async () => await DeleteCv(c)" title="@I18n.T("cv.delete")"
+                                            class="text-xs text-slate-400 hover:text-rose-500">🗑️</button>
+                                </span>
                             </td>
                             <td class="px-4 py-2">@(c.Status == CvStatus.Published ? I18n.T("cv.published") : I18n.T("cv.draft"))</td>
                             <td class="px-4 py-2 text-slate-500">@c.CreatedAt.ToString("MMM d, yyyy")</td>
@@ -148,7 +154,7 @@ else
                     }
                     @if (!_cvs.Any())
                     {
-                        <tr><td colspan="3" class="px-4 py-6 text-center text-slate-400">No CVs yet — create one from a position.</td></tr>
+                        <tr><td colspan="3" class="px-4 py-6 text-center text-slate-400">@I18n.T("profile.cvempty")</td></tr>
                     }
                 </tbody>
             </table>
@@ -215,8 +221,9 @@ else
     private async Task LoadAsync()
     {
         await using var db = await DbFactory.CreateDbContextAsync();
-        var isRecruiter = (await AuthState.GetAuthenticationStateAsync()).User.IsInRole("Recruiter") && !(await AuthState.GetAuthenticationStateAsync()).User.IsInRole("Admin");
-        var isAdmin = (await AuthState.GetAuthenticationStateAsync()).User.IsInRole("Admin");
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var isRecruiter = auth.User.IsInRole("Recruiter") && !auth.User.IsInRole("Admin");
+        var isAdmin = auth.User.IsInRole("Admin");
 
         var builtins = await db.Attributes.Where(a => a.IsBuiltIn).OrderBy(a => a.Id).ToListAsync();
         _aboutId = builtins.FirstOrDefault(a => a.Name == BuiltInAttributeNames.About)?.Id ?? 0;
@@ -253,14 +260,21 @@ else
 
         _allTags = await db.Tags.OrderBy(t => t.Name).Select(t => t.Name).ToListAsync();
 
-        var positionTitles = await db.Positions.ToDictionaryAsync(p => p.Id, p => p.Title);
-        var accessByPosition = await db.Positions.Include(p => p.Filters).ThenInclude(f => f.Attribute).ToDictionaryAsync(p => p.Id, p => p);
-
+        // Load the candidate's CVs first, then fetch only the positions those CVs belong to
+        // (instead of scanning every position in the catalog).
         _cvs = await db.Cvs.Where(c => c.UserId == _userId).OrderByDescending(c => c.CreatedAt)
-            .Select(c => new CvRow { CvId = c.Id, PositionId = c.PositionId, Status = c.Status, CreatedAt = c.CreatedAt, PositionTitle = positionTitles.GetValueOrDefault(c.PositionId) ?? "?" })
+            .Select(c => new CvRow { CvId = c.Id, PositionId = c.PositionId, Status = c.Status, CreatedAt = c.CreatedAt })
             .ToListAsync();
+
+        var posIds = _cvs.Select(c => c.PositionId).ToHashSet();
+        var positionTitles = await db.Positions.Where(p => posIds.Contains(p.Id))
+            .ToDictionaryAsync(p => p.Id, p => p.Title);
+        var accessByPosition = await db.Positions.Include(p => p.Filters).ThenInclude(f => f.Attribute)
+            .Where(p => posIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id, p => p);
+
         foreach (var c in _cvs)
         {
+            c.PositionTitle = positionTitles.GetValueOrDefault(c.PositionId) ?? "?";
             if (!accessByPosition.TryGetValue(c.PositionId, out var pos)) { c.Hidden = true; continue; }
             c.Hidden = !AccessRules.HasAccess(pos, values, isAdmin || isRecruiter);
         }
@@ -288,7 +302,17 @@ else
         try
         {
             await using var db = await DbFactory.CreateDbContextAsync();
-            foreach (var attrId in _dirty.ToList())
+
+            // Batch-load the dirty set's attribute definitions + existing values up front
+            // (two queries total) so the loop below performs no database access per field.
+            var dirty = _dirty.ToList();
+            var defs = await db.Attributes.Where(a => dirty.Contains(a.Id))
+                .ToDictionaryAsync(a => a.Id);
+            var existing = await db.AttributeValues
+                .Where(v => v.UserId == _userId && dirty.Contains(v.AttributeId))
+                .ToDictionaryAsync(v => v.AttributeId);
+
+            foreach (var attrId in dirty)
             {
                 var idx = _me_fields.FindIndex(x => x.AttributeId == attrId);
                 var list = _me_fields;
@@ -296,19 +320,19 @@ else
                 if (idx < 0) { _dirty.Remove(attrId); continue; }
                 var f = list[idx];
 
-                var def = await db.Attributes.FirstOrDefaultAsync(a => a.Id == attrId);
+                var def = defs.GetValueOrDefault(attrId);
                 if (def is null) { _dirty.Remove(attrId); continue; }
 
-                var value = await db.AttributeValues.FirstOrDefaultAsync(v => v.UserId == _userId && v.AttributeId == attrId);
+                var value = existing.GetValueOrDefault(attrId);
                 var isNew = value is null;
 
-                // Optimistic locking via xmin: reload current version and compare.
+                // Optimistic locking via xmin: compare the tracked row version to the version the client last saw.
                 if (!isNew && f.Version is uint expected)
                 {
                     var current = db.Entry(value!).Property("xmin").CurrentValue as uint?;
                     if (current is uint cur && cur != expected)
                     {
-                        // Conflict: adopt the server state for this field.
+                        // Concurrent edit: adopt the known server state for this field.
                         list[idx] = f with
                         {
                             Version = cur,
@@ -444,6 +468,15 @@ else
             await db.SaveChangesAsync();
         }
         await LoadAsync();
+    }
+
+    private async Task DeleteCv(CvRow c)
+    {
+        var confirmed = await JS.InvokeAsync<bool>("confirm", I18n.T("cv.delete") + "?");
+        if (!confirmed) return;
+        var http = new HttpClient { BaseAddress = new Uri(Nav.BaseUri) };
+        var resp = await http.DeleteAsync($"api/cvs/{c.CvId}");
+        if (resp.IsSuccessStatusCode) _cvs.Remove(c);
     }
 
     public void Dispose()

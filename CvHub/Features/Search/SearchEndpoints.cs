@@ -72,7 +72,8 @@ public static class SearchEndpoints
                     .Select(v => v.StringValue).FirstOrDefault() ?? "")
                     + " — " + c.Position.Title,
                 "cv/" + c.Id,
-                "cv"))
+                "cv",
+                db.Likes.Count(l => l.CvId == c.Id)))
             .ToListAsync();
 
     public sealed class SearchResults
@@ -83,5 +84,5 @@ public static class SearchEndpoints
         public List<Hit> Cvs { get; set; } = [];
     }
 
-    public sealed record Hit(string Id, string Title, string? Subtitle, string Href, string Kind);
+    public sealed record Hit(string Id, string Title, string? Subtitle, string Href, string Kind, int Likes = 0);
 }

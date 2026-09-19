@@ -21,7 +21,7 @@
                 }
                 <span>@c.CreatedAt.ToString("MMM d, HH:mm:ss")</span>
             </div>
-            <div class="mt-1 whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-200">@c.Body</div>
+            <div class="mt-1 md-content text-sm text-slate-700 dark:text-slate-200">@((MarkupString)c.Html)</div>
         </div>
     }
     @if (!_posts.Any())
@@ -122,5 +122,6 @@ else
         public bool IsRecruiterView { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
         public string Body { get; set; } = "";
+        public string Html { get; set; } = "";
     }
 }

@@ -336,7 +336,9 @@ else
         _sections = _view.Fields
             .Where(f => f.Name is not (BuiltInAttributeNames.Photo or BuiltInAttributeNames.FirstName or BuiltInAttributeNames.LastName))
             .GroupBy(f => f.Section ?? "Details").ToList();
-    }    private async Task Publish()
+    }
+
+    private async Task Publish()
     {
         _publishError = null;
         await using var db = await DbFactory.CreateDbContextAsync();

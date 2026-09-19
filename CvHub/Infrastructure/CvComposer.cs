@@ -19,9 +19,10 @@ public static class CvComposer
             .Where(v => v.UserId == cv.UserId && attrIds.Contains(v.AttributeId))
             .ToDictionaryAsync(v => v.AttributeId, ct);
 
-        var projectIds = await db.CvProjects.Where(cp => cp.CvId == cv.Id).Select(cp => cp.ProjectId).ToListAsync(ct);
+        // Single query: projects belonging to the CV's owner that are linked to this CV
+        // (replaces the two-step projectIds + Projects load).
         var projects = await db.Projects.Include(p => p.Tags).ThenInclude(pt => pt.Tag)
-            .Where(p => p.UserId == cv.UserId && projectIds.Contains(p.Id))
+            .Where(p => p.UserId == cv.UserId && db.CvProjects.Any(cp => cp.CvId == cv.Id && cp.ProjectId == p.Id))
             .OrderBy(p => p.SortOrder)
             .ToListAsync(ct);
 

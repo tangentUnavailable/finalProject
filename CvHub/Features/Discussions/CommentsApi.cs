@@ -1,5 +1,6 @@
 using CvHub.Data;
 using CvHub.Domain;
+using CvHub.Infrastructure;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -33,6 +34,7 @@ public static class CommentsApi
             {
                 p.Id,
                 p.Body,
+                Html = MarkdownRenderer.Render(p.Body),
                 p.CreatedAt,
                 AuthorId = isRecruiter ? p.UserId : null,
                 AuthorName = p.AuthorName ?? "user",

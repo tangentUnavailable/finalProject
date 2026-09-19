@@ -41,10 +41,11 @@
             <div>
                 <label for="Input.Password" class="mb-1 block text-sm font-medium">@I18n.T("account.password")</label>
                 <InputText type="password" @bind-Value="Input.Password" id="Input.Password" autocomplete="new-password" aria-required="true" placeholder="••••••••"
-                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-slate-600 dark:bg-slate-900" />
+                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-slate-600 dark:bg-slate-900"
+                           @onfocus="() => _passwordFocused = true"
+                           @onblur="() => _passwordFocused = false" />
                 <ValidationMessage For="() => Input.Password" class="mt-1 block text-xs text-rose-500" />
-                
-                @if (!string.IsNullOrEmpty(Input.Password))
+                @if (_passwordFocused || !string.IsNullOrEmpty(Input.Password))
                 {
                     <div class="mt-2 space-y-1" role="list" aria-label="@I18n.T("account.register.passwordRequirements")">
                         <div class="flex items-center gap-2 text-xs @(_checks[0] ? "text-emerald-600" : "text-slate-400")">
@@ -109,6 +110,8 @@
 
     [SupplyParameterFromForm]
     private InputModel Input { get; set; } = new();
+
+    private bool _passwordFocused;
 
     /// <summary>
     /// Password-strength checklist, always derived from the bound model so it is
