@@ -183,6 +183,19 @@ public static class ProfileApi
                 .Take(10)
                 .Select(t => t.Name)
                 .ToArrayAsync());
+
+        // ---------- Pinned attributes for attribute picker ----------
+        profileGroup.MapGet("/api/profile/attributes/pinned", async (
+            ApplicationDbContext db, UserManager<ApplicationUser> users, HttpContext http) =>
+        {
+            var uid = users.GetUserId(http.User);
+            if (uid is null) return Results.Ok(Array.Empty<int>());
+            var pinned = await db.ProfileAttributes
+                .Where(pa => pa.UserId == uid)
+                .Select(pa => pa.AttributeId)
+                .ToListAsync();
+            return Results.Ok(pinned);
+        });
     }
 
     private static void ApplyValue(AttributeValue value, AttributeType type, SaveValueRequest req)

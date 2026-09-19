@@ -1,9 +1,7 @@
+@rendermode InteractiveAuto
 @using CvHub.Shared
-@using CvHub.Domain
-@using Microsoft.EntityFrameworkCore
 @implements IDisposable
-@inject IDbContextFactory<ApplicationDbContext> DbFactory
-@inject AuthenticationStateProvider AuthState
+@inject HttpClient Http
 
 <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
     <div class="flex items-center gap-2 border-b border-slate-200 dark:border-slate-700 p-2">
@@ -68,6 +66,10 @@
     {
         _debounce = new System.Timers.Timer(250) { AutoReset = false };
         _debounce.Elapsed += async (_, _) => await InvokeAsync(Search);
+
+        // Prerender pass renders the shell only; data loads once the circuit/interactive runtime is up.
+        if (!RendererInfo.IsInteractive) return;
+
         await Search();
     }
 
@@ -85,48 +87,25 @@
         _loading = true;
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
+            var q = new List<string>();
+            if (!string.IsNullOrEmpty(_prefix)) q.Add($"prefix={Uri.EscapeDataString(_prefix)}");
+            if (!string.IsNullOrEmpty(_category)) q.Add($"category={Uri.EscapeDataString(_category)}");
+            var url = "api/attributes/search" + (q.Count > 0 ? "?" + string.Join("&", q) : "");
 
-            // Prefix lookup (case-insensitive) + optional category filter. Indexed Name match.
-            var query = db.Attributes.AsNoTracking();
-            if (!string.IsNullOrEmpty(_category)) query = query.Where(a => a.Category == _category);
-            if (!string.IsNullOrEmpty(_prefix)) query = query.Where(a => EF.Functions.ILike(a.Name, _prefix + "%"));
+            _results = await Http.GetFromJsonAsync<List<AttrRow>>(url) ?? [];
 
-            _results = await query.OrderBy(a => a.Name).Take(30)
-                .Select(a => new AttrRow(a.Id, a.Name, a.Category, a.Type))
-                .ToListAsync();
+            // Recently used = the user's RecentAttributes rows (only shown while searching by prefix).
+            _recent = !string.IsNullOrEmpty(_prefix)
+                ? await Http.GetFromJsonAsync<List<AttrRow>>("api/attributes/recent") ?? []
+                : [];
 
             // Already-pinned attributes: shown with a check and picking them is a no-op.
-            _pinnedIds = (await db.ProfileAttributes.AsNoTracking()
-                .Where(pa => pa.UserId == _userId).Select(pa => pa.AttributeId).ToListAsync())
-                .ToHashSet();
-
-            // Recently used = attributes from the RecentAttributes table (ordered by UsedAt).
-            if (!string.IsNullOrEmpty(_prefix))
-            {
-                _recent = await db.RecentAttributes.AsNoTracking()
-                    .Where(r => r.UserId == _userId)
-                    .OrderByDescending(r => r.UsedAt)
-                    .Take(5)
-                    .Join(db.Attributes, r => r.AttributeId, a => a.Id, (r, a) => new AttrRow(a.Id, a.Name, a.Category, a.Type))
-                    .ToListAsync();
-            }
+            _pinnedIds = (await Http.GetFromJsonAsync<List<int>>("api/attributes/pinned") ?? []).ToHashSet();
         }
         finally
         {
             _loading = false;
             StateHasChanged();
-        }
-    }
-
-    private string? _userId;
-
-    protected override async Task OnParametersSetAsync()
-    {
-        if (_userId is null)
-        {
-            var auth = await AuthState.GetAuthenticationStateAsync();
-            _userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
         }
     }
 

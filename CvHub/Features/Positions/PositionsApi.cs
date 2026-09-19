@@ -15,6 +15,18 @@ public static class PositionsApi
     {
         var group = app.MapGroup("/api/positions").RequireAuthorization(p => p.RequireRole("Admin", "Recruiter")).DisableAntiforgery();
 
+        group.MapGet("/list", async (ApplicationDbContext db) =>
+        {
+            var rows = await db.Positions
+                .Select(p => new
+                {
+                    p.Id, p.Title, p.Company, p.Level, p.Access, p.UpdatedAt,
+                    CvCount = p.Cvs.Count(c => c.Status == CvStatus.Published)
+                })
+                .ToListAsync();
+            return Results.Ok(rows);
+        });
+
         group.MapGet("/", async (ApplicationDbContext db) =>
             await db.Positions.OrderByDescending(p => p.UpdatedAt).Take(200)
                 .Select(p => new { p.Id, p.Title, p.Company, p.Level, p.Access, p.UpdatedAt })

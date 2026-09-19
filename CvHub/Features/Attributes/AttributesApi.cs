@@ -11,7 +11,12 @@ public static class AttributesApi
 {
     public static void MapAttributesApi(this IEndpointRouteBuilder app)
     {
+        // Mutations stay locked to Admin/Recruiter.
         var group = app.MapGroup("/api/attributes").RequireAuthorization(p => p.RequireRole("Admin", "Recruiter")).DisableAntiforgery();
+
+        // Read endpoints are open to every authenticated user: candidates browse the
+        // library on their profile via the (InteractiveAuto) AttributePicker in the Client project.
+        var readGroup = app.MapGroup("/api/attributes").RequireAuthorization().DisableAntiforgery();
 
         group.MapGet("/lookup", async (string? prefix, string? category, string? ids, ApplicationDbContext db) =>
         {
@@ -31,7 +36,7 @@ public static class AttributesApi
             return Results.Ok(rows);
         });
 
-        group.MapGet("/recent", async (ApplicationDbContext db, UserManager<ApplicationUser> users, HttpContext http) =>
+        readGroup.MapGet("/recent", async (ApplicationDbContext db, UserManager<ApplicationUser> users, HttpContext http) =>
         {
             var uid = users.GetUserId(http.User);
             if (uid is null) return Results.Ok(Array.Empty<object>());
@@ -40,6 +45,32 @@ public static class AttributesApi
                 .Join(db.Attributes, r => r.AttributeId, a => a.Id, (r, a) => new { a.Id, a.Name, a.Category, a.Type })
                 .ToListAsync();
             return Results.Ok(rows);
+        });
+
+        readGroup.MapGet("/search", async (string? prefix, string? category, ApplicationDbContext db, UserManager<ApplicationUser> users, HttpContext http) =>
+        {
+            var uid = users.GetUserId(http.User);
+            if (uid is null) return Results.Ok(Array.Empty<object>());
+            var q = db.Attributes.AsQueryable();
+            if (!string.IsNullOrEmpty(category))
+                q = q.Where(a => a.Category == category);
+            if (!string.IsNullOrEmpty(prefix))
+                q = q.Where(a => EF.Functions.ILike(a.Name, prefix + "%"));
+            var rows = await q.OrderBy(a => a.Name).Take(30)
+                .Select(a => new { a.Id, a.Name, a.Category, a.Type })
+                .ToListAsync();
+            return Results.Ok(rows);
+        });
+
+        // Attribute ids already pinned to the current user's profile (shown with a check in the picker).
+        readGroup.MapGet("/pinned", async (ApplicationDbContext db, UserManager<ApplicationUser> users, HttpContext http) =>
+        {
+            var uid = users.GetUserId(http.User);
+            if (uid is null) return Results.Ok(Array.Empty<int>());
+            var ids = await db.ProfileAttributes.AsNoTracking()
+                .Where(pa => pa.UserId == uid).Select(pa => pa.AttributeId)
+                .ToListAsync();
+            return Results.Ok(ids);
         });
 
         group.MapPost("/recent/{attrId:int}", async (int attrId, ApplicationDbContext db, UserManager<ApplicationUser> users, HttpContext http) =>

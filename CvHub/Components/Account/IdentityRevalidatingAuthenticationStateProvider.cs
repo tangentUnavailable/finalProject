@@ -33,6 +33,11 @@ internal sealed class IdentityRevalidatingAuthenticationStateProvider(
         {
             return false;
         }
+        else if (user.IsBlocked)
+        {
+            // Admin-blocked users lose interactive sessions on the next revalidation.
+            return false;
+        }
         else if (!userManager.SupportsUserSecurityStamp)
         {
             return true;

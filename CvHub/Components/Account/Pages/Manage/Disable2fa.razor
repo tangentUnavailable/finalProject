@@ -46,7 +46,12 @@
 
         if (HttpMethods.IsGet(HttpContext.Request.Method) && !await UserManager.GetTwoFactorEnabledAsync(user))
         {
-            throw new InvalidOperationException("Cannot disable 2FA for user as it's not currently enabled.");
+            // Redirect to the 2FA hub instead of crashing when 2FA is not enabled.
+            RedirectManager.RedirectToWithStatus(
+                "Account/Manage/TwoFactorAuthentication",
+                "2FA is not currently enabled, so there is nothing to disable.",
+                HttpContext);
+            return;
         }
     }
 

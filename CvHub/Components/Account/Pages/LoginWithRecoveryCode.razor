@@ -47,9 +47,15 @@
     {
         Input ??= new();
 
-        // Ensure the user has gone through the username & password screen first
-        user = await SignInManager.GetTwoFactorAuthenticationUserAsync() ??
-            throw new InvalidOperationException("Unable to load two-factor authentication user.");
+        // Ensure the user has gone through the username & password screen first.
+        // A direct visit with no 2FA login in progress would otherwise crash the
+        // render; send the visitor back to the login page instead.
+        user = await SignInManager.GetTwoFactorAuthenticationUserAsync();
+        if (user is null)
+        {
+            RedirectManager.RedirectTo("Account/Login");
+            return;
+        }
     }
 
     private async Task OnValidSubmitAsync()

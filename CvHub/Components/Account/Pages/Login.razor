@@ -101,6 +101,15 @@
         // This doesn't count as a failed login if the form is invalid.
         if (!editContext.Validate()) return;
 
+        // Blocked users must not be able to sign in.
+        var candidateUser = await UserManager.FindByEmailAsync(Input.Email);
+        if (candidateUser?.IsBlocked == true)
+        {
+            Logger.LogWarning("Blocked user {Email} attempted to sign in.", Input.Email);
+            errorMessage = "Error: This account has been blocked. Contact an administrator.";
+            return;
+        }
+
         var result = await SignInManager.PasswordSignInAsync(Input.Email, Input.Password, Input.RememberMe, lockoutOnFailure: false);
         errorMessage = null;
 

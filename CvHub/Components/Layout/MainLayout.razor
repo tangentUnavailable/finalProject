@@ -36,6 +36,9 @@
                             </a>
                             <form action="Account/Logout" method="post" class="inline">
                                 <AntiforgeryToken />
+                                @* The Logout endpoint binds [FromForm] string returnUrl; without this hidden
+                                   field every logout POST failed model binding with an empty 400. *@
+                                <input type="hidden" name="returnUrl" value="@LogoutReturnUrl" />
                                 <button type="submit" class="rounded-lg px-2 py-1.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800">@I18n.T("nav.logout")</button>
                             </form>
                         </Authorized>
@@ -60,6 +63,9 @@
 
 @code {
     private string? _q;
+
+    // Path-only relative value (~/ prefix is added by the endpoint); excludes query string.
+    private string LogoutReturnUrl => HttpContext?.Request.Path.HasValue == true ? HttpContext.Request.Path.Value! : "";
 
     [CascadingParameter] private HttpContext? HttpContext { get; set; }
 

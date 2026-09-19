@@ -1,10 +1,7 @@
+@rendermode InteractiveAuto
 @using Microsoft.JSInterop
-@using CvHub.Data
-@using CvHub.Domain
-@using CvHub.Infrastructure
-@using Microsoft.EntityFrameworkCore
 @implements IDisposable
-@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject HttpClient Http
 @inject IJSRuntime JS
 @inject AuthenticationStateProvider AuthState
 
@@ -24,7 +21,7 @@
                 }
                 <span>@c.CreatedAt.ToString("MMM d, HH:mm:ss")</span>
             </div>
-            <MarkdownDisplay Markdown="@c.Body" Class="mt-1" />
+            <div class="mt-1 whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-200">@c.Body</div>
         </div>
     }
     @if (!_posts.Any())
@@ -57,19 +54,18 @@ else
     private string _draft = "";
     private bool _busy;
     private bool _canPost;
-    private bool _isRecruiter;
     private DotNetObjectReference<DiscussionPanel>? _ref;
-    private DateTimeOffset _lastPoll = DateTimeOffset.MinValue;
     private int _lastCount;
-    private string? _userId;
 
     protected override async Task OnInitializedAsync()
     {
         var auth = await AuthState.GetAuthenticationStateAsync();
         _canPost = auth.User.Identity?.IsAuthenticated == true;
-        _isRecruiter = auth.User.IsInRole("Recruiter") || auth.User.IsInRole("Admin");
-        _userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-        await PollOnce();
+
+        // Prerender pass renders the shell only; data loads once the circuit/interactive runtime is up.
+        if (!RendererInfo.IsInteractive) return;
+
+        await LoadAsync();
         _ref = DotNetObjectReference.Create(this);
     }
 
@@ -82,37 +78,17 @@ else
     [JSInvokable]
     public async Task Poll()
     {
-        await PollOnce();
+        await LoadAsync();
         StateHasChanged();
     }
 
-    private async Task PollOnce()
+    private async Task LoadAsync()
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var isRecruiter = _isRecruiter;
-        var rows = await db.Comments.Where(c => c.PositionId == PositionId)
-            .OrderBy(c => c.CreatedAt).Take(500)
-            .Select(c => new
-            {
-                c.Id,
-                c.Body,
-                c.CreatedAt,
-                c.UserId,
-                AuthorName = db.Users.Where(u => u.Id == c.UserId).Select(u => u.DisplayName ?? u.UserName).FirstOrDefault(),
-            })
-            .ToListAsync();
+        // The API handles recruiter/candidate visibility and author names server-side.
+        var rows = await Http.GetFromJsonAsync<List<PostDto>>($"api/positions/{PositionId}/comments") ?? [];
         if (rows.Count == _lastCount) return;
-        // Posts are strictly chronological — append only.
-        _posts = rows.Select(p => new PostDto
-        {
-            Id = p.Id,
-            Body = p.Body,
-            CreatedAt = p.CreatedAt,
-            AuthorId = isRecruiter ? p.UserId : null,
-            AuthorName = p.AuthorName ?? "user",
-            IsRecruiterView = isRecruiter,
-        }).ToList();
-        _lastCount = _posts.Count;
+        _posts = rows; // strictly chronological — append only
+        _lastCount = rows.Count;
     }
 
     private async Task Post()
@@ -121,11 +97,12 @@ else
         _busy = true;
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
-            db.Comments.Add(new Comment { PositionId = PositionId, UserId = _userId, Body = _draft, CreatedAt = DateTimeOffset.UtcNow });
-            await db.SaveChangesAsync();
-            _draft = "";
-            await PollOnce();
+            var resp = await Http.PostAsJsonAsync($"api/positions/{PositionId}/comments", new { body = _draft });
+            if (resp.IsSuccessStatusCode)
+            {
+                _draft = "";
+                await LoadAsync();
+            }
             StateHasChanged();
         }
         finally { _busy = false; }

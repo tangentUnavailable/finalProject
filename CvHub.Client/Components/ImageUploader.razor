@@ -1,7 +1,7 @@
+@rendermode InteractiveAuto
 @using Microsoft.JSInterop
 @implements IAsyncDisposable
 @inject IJSRuntime JS
-@inject IConfiguration Config
 
 <div id="@_zoneId" class="rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-600 p-3 text-center transition-colors @(_dragging ? "border-brand-500 bg-brand-50 dark:bg-brand-900/20" : "")">
     @if (!string.IsNullOrEmpty(Url))

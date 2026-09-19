@@ -41,30 +41,29 @@
             <div>
                 <label for="Input.Password" class="mb-1 block text-sm font-medium">@I18n.T("account.password")</label>
                 <InputText type="password" @bind-Value="Input.Password" id="Input.Password" autocomplete="new-password" aria-required="true" placeholder="••••••••"
-                           @oninput="OnPasswordInput"
                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-slate-600 dark:bg-slate-900" />
                 <ValidationMessage For="() => Input.Password" class="mt-1 block text-xs text-rose-500" />
                 
                 @if (!string.IsNullOrEmpty(Input.Password))
                 {
                     <div class="mt-2 space-y-1" role="list" aria-label="@I18n.T("account.register.passwordRequirements")">
-                        <div class="flex items-center gap-2 text-xs @(_checks.Length >= 1 ? "text-emerald-600" : "text-slate-400")">
+                        <div class="flex items-center gap-2 text-xs @(_checks[0] ? "text-emerald-600" : "text-slate-400")">
                             <span class="@(_checks[0] ? "text-emerald-500" : "text-slate-300 dark:text-slate-500")">✓</span>
                             <span>@I18n.T("account.register.reqMinLength")</span>
                         </div>
-                        <div class="flex items-center gap-2 text-xs @(_checks.Length >= 2 ? "text-emerald-600" : "text-slate-400")">
+                        <div class="flex items-center gap-2 text-xs @(_checks[1] ? "text-emerald-600" : "text-slate-400")">
                             <span class="@(_checks[1] ? "text-emerald-500" : "text-slate-300 dark:text-slate-500")">✓</span>
                             <span>@I18n.T("account.register.reqUppercase")</span>
                         </div>
-                        <div class="flex items-center gap-2 text-xs @(_checks.Length >= 3 ? "text-emerald-600" : "text-slate-400")">
+                        <div class="flex items-center gap-2 text-xs @(_checks[2] ? "text-emerald-600" : "text-slate-400")">
                             <span class="@(_checks[2] ? "text-emerald-500" : "text-slate-300 dark:text-slate-500")">✓</span>
                             <span>@I18n.T("account.register.reqLowercase")</span>
                         </div>
-                        <div class="flex items-center gap-2 text-xs @(_checks.Length >= 4 ? "text-emerald-600" : "text-slate-400")">
+                        <div class="flex items-center gap-2 text-xs @(_checks[3] ? "text-emerald-600" : "text-slate-400")">
                             <span class="@(_checks[3] ? "text-emerald-500" : "text-slate-300 dark:text-slate-500")">✓</span>
                             <span>@I18n.T("account.register.reqDigit")</span>
                         </div>
-                        <div class="flex items-center gap-2 text-xs @(_checks.Length >= 5 ? "text-emerald-600" : "text-slate-400")">
+                        <div class="flex items-center gap-2 text-xs @(_checks[4] ? "text-emerald-600" : "text-slate-400")">
                             <span class="@(_checks[4] ? "text-emerald-500" : "text-slate-300 dark:text-slate-500")">✓</span>
                             <span>@I18n.T("account.register.reqSpecial")</span>
                         </div>
@@ -111,20 +110,23 @@
     [SupplyParameterFromForm]
     private InputModel Input { get; set; } = new();
 
-    private bool[] _checks = [];
+    /// <summary>
+    /// Password-strength checklist, always derived from the bound model so it is
+    /// correct in interactive renders (keystroke) and form-POST re-renders alike.
+    /// </summary>
+    private bool[] _checks => BuildChecks(Input.Password);
 
-    private void OnPasswordInput(ChangeEventArgs e)
+    private static bool[] BuildChecks(string? pwd)
     {
-        var pwd = e.Value?.ToString() ?? "";
-        Input.Password = pwd;
-        _checks = new[]
-        {
+        pwd ??= "";
+        return
+        [
             pwd.Length >= 6,
             pwd.Any(char.IsUpper),
             pwd.Any(char.IsLower),
             pwd.Any(char.IsDigit),
             pwd.Any(ch => !char.IsLetterOrDigit(ch))
-        };
+        ];
     }
 
     public async Task RegisterUser()

@@ -47,7 +47,9 @@ internal static class IdentityComponentsEndpointRouteBuilderExtensions
             [FromForm] string returnUrl) =>
         {
             await signInManager.SignOutAsync();
-            return TypedResults.LocalRedirect($"~/{returnUrl}");
+            // MainLayout posts the current path (e.g. "/Account/Login"); strip any leading
+            // slashes so "~/" + path never collapses to "~//..." which LocalRedirect rejects.
+            return TypedResults.LocalRedirect($"~/{returnUrl?.TrimStart('/') ?? string.Empty}");
         });
 
         accountGroup.MapPost("/PasskeyCreationOptions", async (

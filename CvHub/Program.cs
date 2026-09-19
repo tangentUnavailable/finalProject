@@ -21,6 +21,27 @@ using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ---------- Circuit configuration (keep alive longer) ----------
+// NOTE: AddServerSideBlazor() (the legacy Blazor Server model) must NOT be combined with
+// MapRazorComponents() (Blazor Web). Mixing the two breaks <AntiforgeryToken /> — the
+// EndpointAntiforgeryStateProvider never initializes, form posts get 400s
+// (see dotnet/aspnetcore#65070). CircuitOptions is configured via plain options instead.
+builder.Services.Configure<Microsoft.AspNetCore.Components.Server.CircuitOptions>(options =>
+{
+    options.DetailedErrors = true;
+    options.DisconnectedCircuitMaxRetained = 100;
+    options.DisconnectedCircuitRetentionPeriod = TimeSpan.FromMinutes(30);
+    options.JSInteropDefaultCallTimeout = TimeSpan.FromMinutes(2);
+});
+
+// ---------- SignalR keep-alive ----------
+builder.Services.AddSignalR(hubOptions =>
+{
+    hubOptions.ClientTimeoutInterval = TimeSpan.FromMinutes(5);
+    hubOptions.HandshakeTimeout = TimeSpan.FromSeconds(30);
+    hubOptions.KeepAliveInterval = TimeSpan.FromSeconds(15);
+});
+
 // ---------- Razor components (Auto render mode) ----------
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents()
@@ -130,7 +151,7 @@ else
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
     app.UseHsts();
 }
-app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
+// app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true); // Disabled - interferes with Blazor circuit
 app.UseHttpsRedirection();
 
 // Per-request UI language from cookie (EN/ES; only UI strings are translated).

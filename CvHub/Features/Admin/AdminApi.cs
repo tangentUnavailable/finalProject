@@ -29,10 +29,13 @@ public static class AdminApi
         });
 
         group.MapPost("/{id}/roles/{role}/{on:bool}", async (string id, string role, bool on,
-            UserManager<ApplicationUser> users, ApplicationDbContext db) =>
+            UserManager<ApplicationUser> users, RoleManager<IdentityRole> roles, ApplicationDbContext db) =>
         {
             var user = await users.FindByIdAsync(id);
             if (user is null) return Results.NotFound();
+            // UserManager.AddToRoleAsync throws for unknown roles — reject up front with a clean 400.
+            if (!await roles.RoleExistsAsync(role))
+                return Results.BadRequest(new { message = $"Role '{role}' does not exist." });
             var result = on ? await users.AddToRoleAsync(user, role) : await users.RemoveFromRoleAsync(user, role);
             return result.Succeeded ? Results.Ok() : Results.BadRequest(result.Errors);
         });
@@ -41,7 +44,15 @@ public static class AdminApi
         {
             var user = await users.FindByIdAsync(id);
             if (user is null) return Results.NotFound();
-            await users.DeleteAsync(user);
+            try
+            {
+                await users.DeleteAsync(user);
+            }
+            catch (DbUpdateException)
+            {
+                // FK data (positions, CVs, …) still references this user.
+                return Results.Conflict(new { message = "User has associated data and cannot be deleted. Remove their content first." });
+            }
             return Results.Ok();
         });
     }
