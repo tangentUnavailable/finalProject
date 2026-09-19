@@ -86,44 +86,16 @@ public static class AttributesApi
 
         group.MapPost("/", async ([FromBody] AttrUpsert req, ApplicationDbContext db) =>
         {
-            var name = req.Name.Trim();
-            if (await db.Attributes.AnyAsync(a => a.Name == name))
-                return Results.Conflict(new { message = $"Attribute '{name}' already exists." });
-
-            var attr = new AttributeDef
-            {
-                Name = name, Category = req.Category, Description = req.Description,
-                Type = req.Type, Options = req.Options, IsBuiltIn = false, CreatedAt = DateTimeOffset.UtcNow,
-            };
-            db.Attributes.Add(attr);
-            try { await db.SaveChangesAsync(); }
-            catch (DbUpdateException) { return Results.Conflict(new { message = $"Attribute '{name}' already exists." }); }
-            return Results.Ok(new { id = attr.Id });
+            var (ok, error, id) = await AttributeCommands.CreateAsync(db, req);
+            if (!ok) return Results.Conflict(new { message = error });
+            return Results.Ok(new { id });
         });
 
         group.MapPut("/{id:int}", async (int id, [FromBody] AttrUpsert req, ApplicationDbContext db) =>
         {
-            var attr = await db.Attributes.FirstOrDefaultAsync(a => a.Id == id);
-            if (attr is null) return Results.NotFound();
-            if (attr.IsBuiltIn) return Results.Conflict(new { message = "Built-in attributes cannot be modified." });
-
-            // Optimistic locking: validate version if provided
-            if (req.Version is uint expected)
-            {
-                var current = db.Entry(attr).Property("xmin").CurrentValue as uint?;
-                if (current is uint cur && cur != expected)
-                    return Results.Conflict(new { message = "Attribute was modified by another user. Please refresh and try again." });
-            }
-
-            var name = req.Name.Trim();
-            if (await db.Attributes.AnyAsync(a => a.Name == name && a.Id != id))
-                return Results.Conflict(new { message = $"Attribute '{name}' already exists." });
-
-            attr.Name = name; attr.Category = req.Category; attr.Description = req.Description;
-            attr.Type = req.Type; attr.Options = req.Options;
-            try { await db.SaveChangesAsync(); }
-            catch (DbUpdateException) { return Results.Conflict(new { message = $"Attribute '{name}' already exists." }); }
-            return Results.Ok(new { version = db.Entry(attr).Property("xmin").CurrentValue });
+            var (ok, error, version) = await AttributeCommands.UpdateAsync(db, id, req);
+            if (!ok) return error == "Not found." ? Results.NotFound() : Results.Conflict(new { message = error });
+            return Results.Ok(new { version });
         });
 
         group.MapDelete("/{id:int}", async (int id, ApplicationDbContext db) =>

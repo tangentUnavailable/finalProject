@@ -1,9 +1,9 @@
 @using CvHub.Client.Components
 @using CvHub.Shared
-@using System.Net.Http
-@using System.Net.Http.Json
-@implements IDisposable
-@inject HttpClient Http
+@using CvHub.Features.Positions
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider AuthState
 
 <div class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4">
     <div class="my-8 w-full max-w-3xl rounded-2xl bg-white dark:bg-slate-800 p-5 shadow-2xl">
@@ -137,7 +137,7 @@
     private PositionAccess _access = PositionAccess.Public;
     private List<AttrLine> _attrs = [];
     private List<FilterLine> _filters = [];
-    private List<TagRow> _allTags = [];
+    private List<PositionCommands.TagRow> _allTags = [];
     private HashSet<int> _tagIds = [];
     private int _maxProjects = 5;
     private bool _busy;
@@ -148,10 +148,11 @@
 
     protected override async Task OnInitializedAsync()
     {
-        _allTags = await Http.GetFromJsonAsync<List<TagRow>>("/api/tags") ?? [];
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _allTags = await PositionCommands.AllTagsAsync(db);
         if (PositionId is not null)
         {
-            var dto = await Http.GetFromJsonAsync<PosDto>($"/api/positions/{PositionId}");
+            var dto = await PositionCommands.LoadAsync(db, PositionId.Value);
             if (dto is not null)
             {
                 _title = dto.Title; _shortDesc = dto.ShortDescription; _company = dto.Company; _level = dto.Level;
@@ -174,7 +175,10 @@
 
     private async Task HydrateNewAttribute(int attributeId)
     {
-        var row = (await Http.GetFromJsonAsync<List<AttrRow>>($"/api/attributes/lookup?ids={attributeId}"))?.FirstOrDefault();
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var row = await db.Attributes.Where(a => a.Id == attributeId)
+            .Select(a => new AttrRow(a.Id, a.Name, a.Category, a.Type))
+            .FirstOrDefaultAsync();
         if (row is not null)
         {
             var line = _attrs.FirstOrDefault(a => a.AttributeId == attributeId);
@@ -213,25 +217,27 @@
         _busy = true; _error = null;
         try
         {
+            await using var db = await DbFactory.CreateDbContextAsync();
             var body = new PositionUpsert(
                 _title.Trim(), _shortDesc, _company, _level, _access, _maxProjects,
                 _attrs.Select((a, i) => new PositionAttributeReq(a.Id, a.AttributeId, a.Required, a.Section)).ToList(),
                 _filters.Select(f => new PositionFilterReq(f.AttributeId, f.Operator, f.Value)).ToList(),
                 _tagIds.ToList(),
                 PositionId is null ? null : _version);
-            var resp = PositionId is null
-                ? await Http.PostAsJsonAsync("/api/positions", body)
-                : await Http.PutAsJsonAsync($"/api/positions/{PositionId}", body);
-            if (resp.IsSuccessStatusCode)
+            if (PositionId is null)
             {
-                if (PositionId is not null)
-                {
-                    var result = await resp.Content.ReadFromJsonAsync<SaveResult>();
-                    if (result?.Version is uint v) _version = v;
-                }
-                await OnClosed.InvokeAsync();
+                var auth = await AuthState.GetAuthenticationStateAsync();
+                var uid = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+                var (ok, error, id) = await PositionCommands.CreateAsync(db, uid, body);
+                if (!ok) { _error = error; return; }
             }
-            else _error = $"Save failed: {resp.StatusCode}";
+            else
+            {
+                var (ok, error, version) = await PositionCommands.UpdateAsync(db, PositionId.Value, body);
+                if (!ok) { _error = error; return; }
+                _version = version;
+            }
+            await OnClosed.InvokeAsync();
         }
         finally { _busy = false; }
     }
@@ -240,14 +246,5 @@
 
     public sealed class AttrLine { public int Id { get; set; } public int AttributeId { get; set; } public string Name { get; set; } = ""; public AttributeType Type { get; set; } public string Category { get; set; } = ""; public bool Required { get; set; } public string? Section { get; set; } }
     public sealed class FilterLine { public int AttributeId { get; set; } public FilterOperator Operator { get; set; } public string Value { get; set; } = ""; }
-    public sealed record TagRow(int Id, string Name);
     public sealed record AttrRow(int Id, string Name, string Category, AttributeType Type);
-    public sealed record AttrDto(int Id, int AttributeId, bool Required, int SortOrder, string? Section, string Name, AttributeType Type, string Category, string? Options);
-    public sealed record FilterDto(int Id, int AttributeId, FilterOperator Operator, string Value, string Name, AttributeType Type);
-    public sealed record TagDto(int TagId, string Name);
-    public sealed record PosDto(int Id, string Title, string? ShortDescription, string? Company, string? Level, PositionAccess Access, int MaxProjects, DateTimeOffset UpdatedAt, List<AttrDto> Attributes, List<FilterDto> Filters, List<TagDto> Tags, uint? Version);
-    public sealed record PositionUpsert(string Title, string? ShortDescription, string? Company, string? Level, PositionAccess Access, int MaxProjects, List<PositionAttributeReq> Attributes, List<PositionFilterReq> Filters, List<int>? TagIds, uint? Version);
-    public sealed record PositionAttributeReq(int Id, int AttributeId, bool Required, string? Section);
-    public sealed record PositionFilterReq(int AttributeId, FilterOperator Operator, string Value);
-    public sealed record SaveResult(uint? Version);
 }

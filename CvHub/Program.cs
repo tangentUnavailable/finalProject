@@ -127,6 +127,9 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddHttpClient();
 // HttpClient with BaseAddress for interactive components (DiscussionPanel, editors, pickers).
 // Works in Server circuits and would work in WASM (same-origin relative calls).
+// Note: in Server circuits this client carries no auth cookie (IHttpContextAccessor is
+// null inside a circuit) — auth-protected APIs must be consumed via per-host services
+// (see IAttributeLibrary) or kept unauthenticated.
 builder.Services.AddScoped(sp =>
 {
     var nav = sp.GetRequiredService<NavigationManager>();
@@ -135,6 +138,13 @@ builder.Services.AddScoped(sp =>
     client.BaseAddress = new Uri(nav.BaseUri);
     return client;
 });
+
+// Per-host services for InteractiveAuto components: DB-backed on the server (has the
+// real user context), HTTP-backed in WASM (browser sends the auth cookie itself).
+builder.Services.AddScoped<CvHub.Services.AttributeLibraryServer>();
+builder.Services.AddScoped<CvHub.Shared.IAttributeLibrary>(sp => sp.GetRequiredService<CvHub.Services.AttributeLibraryServer>());
+builder.Services.AddScoped<CvHub.Services.DiscussionServiceServer>();
+builder.Services.AddScoped<CvHub.Shared.IDiscussionService>(sp => sp.GetRequiredService<CvHub.Services.DiscussionServiceServer>());
 
 var app = builder.Build();
 

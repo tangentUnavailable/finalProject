@@ -1,7 +1,7 @@
 @rendermode InteractiveAuto
 @using CvHub.Shared
 @implements IDisposable
-@inject HttpClient Http
+@inject IAttributeLibrary Library
 
 <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
     <div class="flex items-center gap-2 border-b border-slate-200 dark:border-slate-700 p-2">
@@ -57,8 +57,8 @@
     private string _prefix = "";
     private string _category = "";
     private bool _loading = true;
-    private List<AttrRow> _results = [];
-    private List<AttrRow> _recent = [];
+    private List<IAttributeLibrary.AttributeRow> _results = [];
+    private List<IAttributeLibrary.AttributeRow> _recent = [];
     private HashSet<int> _pinnedIds = [];
     private System.Timers.Timer? _debounce;
 
@@ -67,7 +67,7 @@
         _debounce = new System.Timers.Timer(250) { AutoReset = false };
         _debounce.Elapsed += async (_, _) => await InvokeAsync(Search);
 
-        // Prerender pass renders the shell only; data loads once the circuit/interactive runtime is up.
+        // Prerender pass renders the shell only; data loads once the circuit/WASM runtime is interactive.
         if (!RendererInfo.IsInteractive) return;
 
         await Search();
@@ -87,20 +87,13 @@
         _loading = true;
         try
         {
-            var q = new List<string>();
-            if (!string.IsNullOrEmpty(_prefix)) q.Add($"prefix={Uri.EscapeDataString(_prefix)}");
-            if (!string.IsNullOrEmpty(_category)) q.Add($"category={Uri.EscapeDataString(_category)}");
-            var url = "api/attributes/search" + (q.Count > 0 ? "?" + string.Join("&", q) : "");
-
-            _results = await Http.GetFromJsonAsync<List<AttrRow>>(url) ?? [];
+            _results = await Library.SearchAsync(_prefix, _category);
 
             // Recently used = the user's RecentAttributes rows (only shown while searching by prefix).
-            _recent = !string.IsNullOrEmpty(_prefix)
-                ? await Http.GetFromJsonAsync<List<AttrRow>>("api/attributes/recent") ?? []
-                : [];
+            _recent = await Library.RecentAsync(_prefix);
 
             // Already-pinned attributes: shown with a check and picking them is a no-op.
-            _pinnedIds = (await Http.GetFromJsonAsync<List<int>>("api/attributes/pinned") ?? []).ToHashSet();
+            _pinnedIds = await Library.PinnedAsync();
         }
         finally
         {
@@ -115,6 +108,4 @@
     }
 
     public void Dispose() => _debounce?.Dispose();
-
-    public sealed record AttrRow(int Id, string Name, string Category, AttributeType Type);
 }

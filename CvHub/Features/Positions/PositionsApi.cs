@@ -55,44 +55,15 @@ public static class PositionsApi
         group.MapPost("/", async ([FromBody] PositionUpsert req, ApplicationDbContext db, UserManager<ApplicationUser> users, HttpContext http) =>
         {
             var uid = users.GetUserId(http.User)!;
-            var pos = new Position
-            {
-                Title = req.Title, ShortDescription = req.ShortDescription, Company = req.Company,
-                Level = req.Level, Access = req.Access, MaxProjects = Math.Clamp(req.MaxProjects <= 0 ? 5 : req.MaxProjects, 1, 20),
-                CreatedByUserId = uid,
-                CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
-            };
-            db.Positions.Add(pos);
-            await db.SaveChangesAsync(); // need position id first
-
-            await ReplaceChildren(db, pos, req);
-            return Results.Ok(new { id = pos.Id });
+            var (ok, error, id) = await PositionCommands.CreateAsync(db, uid, req);
+            return ok ? Results.Ok(new { id }) : Results.Conflict(new { message = error });
         });
 
         group.MapPut("/{id:int}", async (int id, [FromBody] PositionUpsert req, ApplicationDbContext db) =>
         {
-            var pos = await db.Positions.Include(p => p.Attributes).Include(p => p.Filters).Include(p => p.Tags)
-                .FirstOrDefaultAsync(p => p.Id == id);
-            if (pos is null) return Results.NotFound();
-
-            // Optimistic locking: validate version if provided
-            if (req.Version is uint expected)
-            {
-                var current = db.Entry(pos).Property("xmin").CurrentValue as uint?;
-                if (current is uint cur && cur != expected)
-                    return Results.Conflict(new { message = "Position was modified by another user. Please refresh and try again." });
-            }
-
-            pos.Title = req.Title;
-            pos.ShortDescription = req.ShortDescription;
-            pos.Company = req.Company;
-            pos.Level = req.Level;
-            pos.Access = req.Access;
-            pos.MaxProjects = Math.Clamp(req.MaxProjects <= 0 ? 5 : req.MaxProjects, 1, 20);
-            pos.UpdatedAt = DateTimeOffset.UtcNow;
-
-            await ReplaceChildren(db, pos, req);
-            return Results.Ok(new { version = db.Entry(pos).Property("xmin").CurrentValue });
+            var (ok, error, version) = await PositionCommands.UpdateAsync(db, id, req);
+            if (!ok) return error == "Not found." ? Results.NotFound() : Results.Conflict(new { message = error });
+            return Results.Ok(new { version });
         });
 
         group.MapDelete("/{id:int}", async (int id, ApplicationDbContext db) =>
@@ -131,45 +102,6 @@ public static class PositionsApi
         });
     }
 
-    private static async Task ReplaceChildren(ApplicationDbContext db, Position pos, PositionUpsert req)
-    {
-        // Attributes: diff by (id, attributeId) to preserve rows when only flags change.
-        var reqAttrKeys = req.Attributes.Select(a => (a.Id, a.AttributeId)).ToHashSet();
-        db.PositionAttributes.RemoveRange(pos.Attributes.Where(a => !reqAttrKeys.Contains((a.Id, a.AttributeId))));
-
-        var byId = pos.Attributes.ToDictionary(a => a.Id);
-        var byAttr = pos.Attributes.Where(a => a.Id == 0 || !reqAttrKeys.Contains((a.Id, a.AttributeId)))
-            .ToDictionary(a => a.AttributeId);
-        var order = 0;
-        foreach (var ra in req.Attributes)
-        {
-            if (ra.Id > 0 && byId.TryGetValue(ra.Id, out var existing))
-            {
-                existing.Required = ra.Required; existing.SortOrder = order; existing.Section = ra.Section;
-            }
-            else if (!byAttr.ContainsKey(ra.AttributeId))
-            {
-                db.PositionAttributes.Add(new PositionAttribute
-                { PositionId = pos.Id, AttributeId = ra.AttributeId, Required = ra.Required, SortOrder = order, Section = ra.Section });
-                byAttr[ra.AttributeId] = new PositionAttribute { AttributeId = ra.AttributeId };
-            }
-            order++;
-        }
-
-        // Filters: full replace (small sets).
-        db.PositionFilters.RemoveRange(pos.Filters);
-        db.PositionFilters.AddRange(req.Filters.Select(f => new PositionFilter
-        { PositionId = pos.Id, AttributeId = f.AttributeId, Operator = f.Operator, Value = f.Value }));
-
-        // Tags: full replace.
-        db.PositionTags.RemoveRange(pos.Tags);
-        foreach (var tagId in req.TagIds ?? [])
-        {
-            db.PositionTags.Add(new PositionTag { PositionId = pos.Id, TagId = tagId });
-        }
-
-        await db.SaveChangesAsync();
-    }
 }
 
 public record PositionUpsert(

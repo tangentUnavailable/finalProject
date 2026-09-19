@@ -1,7 +1,7 @@
 @using CvHub.Shared
-@using System.Net.Http
-@using System.Net.Http.Json
-@inject HttpClient Http
+@using CvHub.Features.Attributes
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
 
 <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
     <div class="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-800 p-5 shadow-2xl">
@@ -77,8 +77,10 @@
     {
         if (AttributeId is int id)
         {
-            var rows = await Http.GetFromJsonAsync<List<Row>>($"/api/attributes/lookup?ids={id}");
-            var r = rows?.FirstOrDefault();
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var r = await db.Attributes.Where(a => a.Id == id)
+                .Select(a => new { a.Name, a.Category, a.Type, Version = (uint?)db.Entry(a).Property("xmin").CurrentValue })
+                .FirstOrDefaultAsync();
             if (r is not null) { _name = r.Name; _category = r.Category; _type = r.Type; _version = r.Version; }
         }
     }
@@ -89,23 +91,25 @@
         _busy = true; _error = null;
         try
         {
+            await using var db = await DbFactory.CreateDbContextAsync();
             var body = new AttrUpsert(_name.Trim(), _category, _description, _type, _options, AttributeId is null ? null : _version);
-            var resp = AttributeId is null
-                ? await Http.PostAsJsonAsync("/api/attributes", body)
-                : await Http.PutAsJsonAsync($"/api/attributes/{AttributeId}", body);
-            if (resp.IsSuccessStatusCode) await OnClosed.InvokeAsync();
+            bool ok;
+            string? error;
+            if (AttributeId is null)
+            {
+                (ok, error, _) = await AttributeCommands.CreateAsync(db, body);
+            }
             else
             {
-                var msg = await resp.Content.ReadFromJsonAsync<ErrMsg>();
-                _error = msg?.Message ?? $"Save failed: {resp.StatusCode}";
+                (ok, error, _) = await AttributeCommands.UpdateAsync(db, AttributeId.Value, body);
             }
+            if (ok) await OnClosed.InvokeAsync();
+            else _error = error;
         }
         finally { _busy = false; }
     }
 
     private void Close() => _ = OnClosed.InvokeAsync();
-
-    public sealed record AttrUpsert(string Name, string Category, string? Description, AttributeType Type, string? Options, uint? Version);
 
     private static string TypeLabel(AttributeType t) => t switch
     {
@@ -119,7 +123,4 @@
         AttributeType.OneOfMany => "One of many (dropdown)",
         _ => t.ToString(),
     };
-
-    private sealed record ErrMsg(string Message);
-    private sealed record Row(int Id, string Name, string Category, AttributeType Type, uint? Version);
 }

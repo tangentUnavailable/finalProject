@@ -24,7 +24,7 @@
     <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8 dark:border-slate-700 dark:bg-slate-800">
         @if (!string.IsNullOrEmpty(errorMessage))
         {
-            <div class="mt-1 block text-xs text-rose-500">@errorMessage</div>
+            <div class="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-600 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-400" role="alert">@errorMessage</div>
         }
         <EditForm EditContext="editContext" method="post" OnSubmit="LoginUser" FormName="login" class="space-y-4">
             <DataAnnotationsValidator />
@@ -33,14 +33,22 @@
             <div>
                 <label for="Input.Email" class="mb-1 block text-sm font-medium">@I18n.T("account.email")</label>
                 <InputText @bind-Value="Input.Email" id="Input.Email" autocomplete="username webauthn" aria-required="true" placeholder="name@example.com"
-                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-slate-600 dark:bg-slate-900" />
+                           class="@GetFieldClass(emailError)" />
+                @if (!string.IsNullOrEmpty(emailError))
+                {
+                    <div id="email-error" class="mt-1 block text-xs text-rose-500" role="alert">@emailError</div>
+                }
                 <ValidationMessage For="() => Input.Email" class="mt-1 block text-xs text-rose-500" />
             </div>
 
             <div>
                 <label for="Input.Password" class="mb-1 block text-sm font-medium">@I18n.T("account.password")</label>
                 <InputText type="password" @bind-Value="Input.Password" id="Input.Password" autocomplete="current-password" aria-required="true" placeholder="••••••••"
-                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-slate-600 dark:bg-slate-900" />
+                           class="@GetFieldClass(passwordError)" />
+                @if (!string.IsNullOrEmpty(passwordError))
+                {
+                    <div id="password-error" role="alert" class="mt-1 block text-xs text-rose-500">@passwordError</div>
+                }
                 <ValidationMessage For="() => Input.Password" class="mt-1 block text-xs text-rose-500" />
             </div>
 
@@ -83,6 +91,8 @@
 
 @code {
     private string? errorMessage;
+    private string? emailError;
+    private string? passwordError;
     private EditContext editContext = default!;
 
     [CascadingParameter]
@@ -113,17 +123,19 @@
         // This doesn't count as a failed login if the form is invalid.
         if (!editContext.Validate()) return;
 
+        // Clear previous submission feedback before re-validating.
+        errorMessage = emailError = passwordError = null;
+
         // Blocked users must not be able to sign in.
         var candidateUser = await UserManager.FindByEmailAsync(Input.Email);
         if (candidateUser?.IsBlocked == true)
         {
             Logger.LogWarning("Blocked user {Email} attempted to sign in.", Input.Email);
-            errorMessage = "This account has been blocked. Contact an administrator.";
+            errorMessage = I18n.T("account.login.error.blocked");
             return;
         }
 
         var result = await SignInManager.PasswordSignInAsync(Input.Email, Input.Password, Input.RememberMe, lockoutOnFailure: false);
-        errorMessage = null;
 
         if (result.Succeeded)
         {
@@ -140,9 +152,23 @@
         }
         else
         {
-            errorMessage = "Invalid login attempt.";
+            // Distinguish the two failure modes so feedback appears under the
+            // offending field: unknown email vs. wrong password.
+            if (candidateUser is null)
+            {
+                emailError = I18n.T("account.login.error.noUser");
+            }
+            else
+            { 
+                passwordError = I18n.T("account.login.error.wrongPassword");
+            }
         }
     }
+
+    private string GetFieldClass(string? error) =>
+        string.IsNullOrEmpty(error)
+            ? "block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-slate-600 dark:bg-slate-900"
+            : "block w-full rounded-lg border border-rose-400 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-rose-400 dark:border-rose-500 dark:bg-slate-900";
 
     private sealed class InputModel
     {

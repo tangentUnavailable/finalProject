@@ -8,27 +8,29 @@
 @inject UserManager<ApplicationUser> UserManager
 @inject IdentityRedirectManager RedirectManager
 
-<EditForm Model="Input" OnValidSubmit="Rename" FormName="rename-passkey" method="post">
-    <DataAnnotationsValidator />
-    @if (passkey?.Name is { } name)
-    {
-        <h4>Enter a new name for your "@name" passkey</h4>
-    }
-    else
-    {
-        <h4>Enter a name for your passkey</h4>
-    }
-    <hr />
-    <ValidationSummary class="text-danger" role="alert" />
-    <div class="form-floating mb-3">
-        <InputText @bind-Value="Input.Name" id="Input.Name" class="form-control" aria-required="true" placeholder="My passkey" />
-        <label for="Input.Name" class="form-label">Passkey name</label>
-        <ValidationMessage For="() => Input.Name" class="text-danger" />
-    </div>
-    <div>
-        <button type="submit" class="w-100 btn btn-lg btn-primary">Continue</button>
-    </div>
-</EditForm>
+<div class="max-w-md">
+    <EditForm Model="Input" OnValidSubmit="Rename" FormName="rename-passkey" method="post">
+        <DataAnnotationsValidator />
+        @if (passkey?.Name is { } name)
+        {
+            <h4>Enter a new name for your "@name" passkey</h4>
+        }
+        else
+        {
+            <h4>Enter a name for your passkey</h4>
+        }
+        <hr />
+        <ValidationSummary class="text-danger" role="alert" />
+        <div class="mb-4">
+            <label for="Input.Name" class="mb-1 block text-sm font-medium">Passkey name</label>
+            <InputText @bind-Value="Input.Name" id="Input.Name" class="form-control" aria-required="true" placeholder="My passkey" />
+            <ValidationMessage For="() => Input.Name" class="text-danger" />
+        </div>
+        <div>
+            <button type="submit" class="btn btn-primary w-100">Continue</button>
+        </div>
+    </EditForm>
+</div>
 
 @code {
     private ApplicationUser? user;

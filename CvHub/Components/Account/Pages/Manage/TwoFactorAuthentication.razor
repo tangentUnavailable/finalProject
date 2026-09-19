@@ -40,14 +40,16 @@
 
         if (isMachineRemembered)
         {
-            <form style="display: inline-block" @formname="forget-browser" @onsubmit="OnSubmitForgetBrowserAsync" method="post">
+            <form class="mb-3" @formname="forget-browser" @onsubmit="OnSubmitForgetBrowserAsync" method="post">
                 <AntiforgeryToken />
                 <button type="submit" class="btn btn-primary">Forget this browser</button>
             </form>
         }
 
-        <a href="Account/Manage/Disable2fa" class="btn btn-primary">Disable 2FA</a>
-        <a href="Account/Manage/GenerateRecoveryCodes" class="btn btn-primary">Reset recovery codes</a>
+        <div class="flex flex-wrap items-center gap-3">
+            <a href="Account/Manage/Disable2fa" class="btn btn-primary">Disable 2FA</a>
+            <a href="Account/Manage/GenerateRecoveryCodes" class="btn btn-primary">Reset recovery codes</a>
+        </div>
     }
 
     <h4>Authenticator app</h4>
@@ -57,8 +59,10 @@
     }
     else
     {
-        <a href="Account/Manage/EnableAuthenticator" class="btn btn-primary">Set up authenticator app</a>
-        <a href="Account/Manage/ResetAuthenticator" class="btn btn-primary">Reset authenticator app</a>
+        <div class="flex flex-wrap items-center gap-3">
+            <a href="Account/Manage/EnableAuthenticator" class="btn btn-primary">Set up authenticator app</a>
+            <a href="Account/Manage/ResetAuthenticator" class="btn btn-primary">Reset authenticator app</a>
+        </div>
     }
 }
 else

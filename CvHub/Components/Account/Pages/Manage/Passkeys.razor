@@ -17,22 +17,22 @@
 
 @if (currentPasskeys is { Count: > 0 })
 {
-    <table class="table">
+    <table>
         <tbody>
             @foreach (var passkey in currentPasskeys)
             {
                 <tr>
-                    <td>@(passkey.Name ?? "Unnamed passkey")</td>
-                    <td>
+                    <td class="font-medium">@(passkey.Name ?? "Unnamed passkey")</td>
+                    <td class="text-right">
                         @{
                             var credentialId = Base64Url.EncodeToString(passkey.CredentialId);
                         }
-                        <form @formname="@($"update-passkey-{credentialId}")" @onsubmit="UpdatePasskey" method="post">
+                        <form @formname="@($"update-passkey-{credentialId}")" @onsubmit="UpdatePasskey" method="post" class="flex justify-end gap-2">
                             <AntiforgeryToken />
-                            <div>
+                            <div class="flex gap-2">
                                 <input type="hidden" name="CredentialId" value="@credentialId" />
-                                <button type="submit" name="Action" value="rename" class="btn btn-primary" title="Rename this passkey">Rename</button>
-                                <button type="submit" name="Action" value="delete" class="btn btn-danger" title="Remove this passkey from your account">Delete</button>
+                                <button type="submit" name="Action" value="rename" class="btn btn-primary px-3 py-1.5 text-xs" title="Rename this passkey">Rename</button>
+                                <button type="submit" name="Action" value="delete" class="btn btn-danger px-3 py-1.5 text-xs" title="Remove this passkey from your account">Delete</button>
                             </div>
                         </form>
                     </td>
@@ -46,7 +46,7 @@ else
     <p>No passkeys are registered.</p>
 }
 
-<form @formname="add-passkey" @onsubmit="AddPasskey" method="post">
+<form @formname="add-passkey" @onsubmit="AddPasskey" method="post" class="mt-4">
     <AntiforgeryToken />
     @if (currentPasskeys is { Count: >= MaxPasskeyCount })
     {

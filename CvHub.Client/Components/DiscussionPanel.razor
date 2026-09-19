@@ -1,7 +1,8 @@
 @rendermode InteractiveAuto
+@using CvHub.Shared
 @using Microsoft.JSInterop
 @implements IDisposable
-@inject HttpClient Http
+@inject IDiscussionService Discussion
 @inject IJSRuntime JS
 @inject AuthenticationStateProvider AuthState
 
@@ -50,10 +51,11 @@ else
 @code {
     [Parameter, EditorRequired] public int PositionId { get; set; }
 
-    private List<PostDto> _posts = [];
+    private List<IDiscussionService.PostDto> _posts = [];
     private string _draft = "";
     private bool _busy;
     private bool _canPost;
+    private bool _isRecruiter;
     private DotNetObjectReference<DiscussionPanel>? _ref;
     private int _lastCount;
 
@@ -61,6 +63,7 @@ else
     {
         var auth = await AuthState.GetAuthenticationStateAsync();
         _canPost = auth.User.Identity?.IsAuthenticated == true;
+        _isRecruiter = auth.User.IsInRole("Recruiter") || auth.User.IsInRole("Admin");
 
         // Prerender pass renders the shell only; data loads once the circuit/interactive runtime is up.
         if (!RendererInfo.IsInteractive) return;
@@ -84,8 +87,8 @@ else
 
     private async Task LoadAsync()
     {
-        // The API handles recruiter/candidate visibility and author names server-side.
-        var rows = await Http.GetFromJsonAsync<List<PostDto>>($"api/positions/{PositionId}/comments") ?? [];
+        // Per-host service (DB on server, JSON API in WASM) handles visibility and author names.
+        var rows = await Discussion.ListAsync(PositionId, _isRecruiter);
         if (rows.Count == _lastCount) return;
         _posts = rows; // strictly chronological — append only
         _lastCount = rows.Count;
@@ -97,8 +100,8 @@ else
         _busy = true;
         try
         {
-            var resp = await Http.PostAsJsonAsync($"api/positions/{PositionId}/comments", new { body = _draft });
-            if (resp.IsSuccessStatusCode)
+            var (ok, _) = await Discussion.PostAsync(PositionId, _draft);
+            if (ok)
             {
                 _draft = "";
                 await LoadAsync();
@@ -112,16 +115,5 @@ else
     {
         JS.InvokeVoidAsync("cvLive.stop", $"pos-{PositionId}");
         _ref?.Dispose();
-    }
-
-    public sealed class PostDto
-    {
-        public int Id { get; set; }
-        public string AuthorName { get; set; } = "";
-        public string? AuthorId { get; set; }
-        public bool IsRecruiterView { get; set; }
-        public DateTimeOffset CreatedAt { get; set; }
-        public string Body { get; set; } = "";
-        public string Html { get; set; } = "";
     }
 }
