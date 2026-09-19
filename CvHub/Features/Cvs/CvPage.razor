@@ -34,8 +34,8 @@ else
         @if (_isRecruiterOrAdmin)
         {
             <button type="button" @onclick="ToggleLike"
-                    class="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-sm hover:border-rose-400">
-                @(_liked ? "❤️" : "🤍") @_likeCount
+                    class="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-sm hover:border-amber-400">
+                <span class="@(_liked ? "text-amber-500" : "text-slate-400")">👍</span> @_likeCount
             </button>
         }
     </div>
