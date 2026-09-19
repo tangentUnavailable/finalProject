@@ -22,7 +22,10 @@
     </div>
 
     <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8 dark:border-slate-700 dark:bg-slate-800">
-        <StatusMessage Message="@errorMessage" />
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="mt-1 block text-xs text-rose-500">@errorMessage</div>
+        }
         <EditForm EditContext="editContext" method="post" OnSubmit="LoginUser" FormName="login" class="space-y-4">
             <DataAnnotationsValidator />
             <ValidationSummary class="hidden" role="alert" />
@@ -94,6 +97,15 @@
     protected override void OnInitialized()
     {
         editContext = new(Input);
+
+        // Surface redirect status messages (e.g. external-login failures) with the
+        // same styling as field validation feedback instead of a StatusMessage banner.
+        var cookie = HttpContext.Request.Cookies[IdentityRedirectManager.StatusCookieName];
+        if (cookie is not null)
+        {
+            errorMessage = cookie;
+            HttpContext.Response.Cookies.Delete(IdentityRedirectManager.StatusCookieName);
+        }
     }
 
     public async Task LoginUser()
@@ -106,7 +118,7 @@
         if (candidateUser?.IsBlocked == true)
         {
             Logger.LogWarning("Blocked user {Email} attempted to sign in.", Input.Email);
-            errorMessage = "Error: This account has been blocked. Contact an administrator.";
+            errorMessage = "This account has been blocked. Contact an administrator.";
             return;
         }
 
@@ -128,7 +140,7 @@
         }
         else
         {
-            errorMessage = "Error: Invalid login attempt.";
+            errorMessage = "Invalid login attempt.";
         }
     }
 
