@@ -123,6 +123,7 @@ builder.Services.AddSingleton(sp => new MarkdownPipelineBuilder()
 
 // ---------- App services ----------
 builder.Services.AddScoped<IdentitySeeder>();
+builder.Services.AddScoped<DbSeeder>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddHttpClient();
 // HttpClient with BaseAddress for interactive components (DiscussionPanel, editors, pickers).
@@ -154,6 +155,7 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
     await db.Database.MigrateAsync();
     await scope.ServiceProvider.GetRequiredService<IdentitySeeder>().SeedAsync();
+    await scope.ServiceProvider.GetRequiredService<DbSeeder>().SeedAsync();
 }
 
 // Configure the HTTP request pipeline.
