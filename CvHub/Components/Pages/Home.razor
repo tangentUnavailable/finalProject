@@ -100,14 +100,18 @@
     <aside>
         <h2 class="mb-3 text-lg font-semibold">@I18n.T("home.cloud")</h2>
         <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
-            @foreach (var t in _tags)
-            {
-                var href = Ctx.HttpContext?.User.IsInRole("Admin") == true || Ctx.HttpContext?.User.IsInRole("Recruiter") == true
-                    ? $"search?q={Uri.EscapeDataString(t.Name)}&scope=cvs"
-                    : $"search?q={Uri.EscapeDataString(t.Name)}&scope=positions";
-                <a href="@href" class="inline-block m-0.5 text-brand-600 dark:text-brand-400 hover:underline"
-                   style="font-size:@(Math.Clamp(0.75 + t.Count * 0.12, 0.75, 1.9).ToString("0.00"))rem">@t.Name</a>
-            }
+            <div class="flex flex-wrap gap-1.5">
+                @foreach (var t in _tags)
+                {
+                    var href = Ctx.HttpContext?.User.IsInRole("Admin") == true || Ctx.HttpContext?.User.IsInRole("Recruiter") == true
+                        ? $"search?q={Uri.EscapeDataString(t.Name)}&scope=cvs"
+                        : $"search?q={Uri.EscapeDataString(t.Name)}&scope=positions";
+                    <a href="@href"
+                       class="inline-flex items-center rounded-full bg-brand-50 dark:bg-brand-900/30 px-2.5 py-1 text-xs font-medium text-brand-700 dark:text-brand-300 whitespace-nowrap hover:bg-brand-100 dark:hover:bg-brand-900/50">
+                        @t.Name
+                    </a>
+                }
+            </div>
             @if (!_tags.Any())
             {
                 <div class="text-slate-400 text-sm">No tags yet.</div>
@@ -175,7 +179,7 @@
             .ToListAsync();
 
         _tags = await db.Tags
-            .Select(t => new TagCount { Name = t.Name, Count = t.Projects.Count })
+            .Select(t => new TagCount { Name = t.Name, Count = t.Projects.Count + t.Positions.Count })
             .Where(t => t.Count > 0)
             .OrderByDescending(t => t.Count)
             .Take(30)

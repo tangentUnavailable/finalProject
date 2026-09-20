@@ -130,7 +130,7 @@ public class DbSeeder(UserManager<ApplicationUser> users, ApplicationDbContext d
              "TechCorp", "Senior", PositionAccess.Restricted,
              new[] { "Primary Skills", "Years of Experience", "Languages", "GitHub URL" },
              (FilterOperator.GreaterOrEqual, "3"),
-             new[] { ".NET", "C#", "SQL", "PostgreSQL", "Docker", "AWS" }),
+             new[] { ".NET", "C#", "F#", "SQL", "PostgreSQL", "Docker", "AWS" }),
             ("Frontend React Engineer",
              "Join a fast-moving startup shipping a React + TypeScript SaaS product daily.",
              "StartupXYZ", "Middle", PositionAccess.Public,
