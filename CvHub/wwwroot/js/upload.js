@@ -13,8 +13,11 @@ window.cvUpload = {
         const zone = document.getElementById(zoneId);
         if (!zone) return;
         zone.addEventListener('dragover', e => { e.preventDefault(); });
+        zone.addEventListener('dragenter', () => dotnetRef.invokeMethodAsync('Dragging', true));
+        zone.addEventListener('dragleave', () => dotnetRef.invokeMethodAsync('Dragging', false));
         zone.addEventListener('drop', async e => {
             e.preventDefault();
+            dotnetRef.invokeMethodAsync('Dragging', false);
             const file = e.dataTransfer?.files?.[0];
             if (file && file.type.startsWith('image/')) await window.cvUpload.upload(dotnetRef, file);
         });

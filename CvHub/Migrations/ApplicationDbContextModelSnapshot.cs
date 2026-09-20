@@ -137,7 +137,7 @@ namespace CvHub.Migrations
                     b.Property<int?>("MaxLength")
                         .HasColumnType("integer");
 
-                    b.Property<string?>("RegexPattern")
+                    b.Property<string>("RegexPattern")
                         .HasColumnType("text");
 
                     b.Property<double?>("MinValue")

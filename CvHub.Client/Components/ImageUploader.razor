@@ -53,6 +53,8 @@
 
     [JSInvokable] public Task Uploading() { _busy = true; _error = false; StateHasChanged(); return Task.CompletedTask; }
 
+    [JSInvokable] public void Dragging(bool value) { _dragging = value; StateHasChanged(); }
+
     [JSInvokable] public async Task Uploaded(string? url)
     {
         _busy = false;

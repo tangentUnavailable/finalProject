@@ -237,9 +237,14 @@ else
     else if (_isCandidateView)
     {
         <div class="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+            <div class="mb-3 flex items-center gap-3 rounded-xl border border-rose-200 dark:border-rose-900 bg-rose-50 dark:bg-rose-900/20 px-4 py-2 @(_selectedCvs.Count > 0 ? "" : "hidden")">
+                <span class="text-sm font-medium">@_selectedCvs.Count @I18n.T("common.selected")</span>
+                <button type="button" @onclick="DeleteSelectedCvs" class="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-rose-700">🗑️ @I18n.T("common.delete")</button>
+            </div>
             <table class="w-full text-sm">
                 <thead>
                     <tr class="border-b border-slate-200 dark:border-slate-700 text-left text-xs uppercase tracking-wide text-slate-500">
+                        <th class="w-10 px-3 py-2"><input type="checkbox" checked="@(_cvs.Count > 0 && _cvs.All(c => _selectedCvs.Contains(c.CvId)))" @onchange="ToggleAllCvs" class="h-4 w-4 rounded accent-brand-600" /></th>
                         <th class="px-4 py-2">@I18n.T("table.title")</th>
                         <th class="px-4 py-2">@I18n.T("table.status")</th>
                         <th class="px-4 py-2">@I18n.T("table.updated")</th>
@@ -248,7 +253,10 @@ else
                 <tbody>
                     @foreach (var c in _cvs)
                     {
-                        <tr class="group border-b border-slate-100 dark:border-slate-700/50 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-700/30">
+                        <tr class="border-b border-slate-100 dark:border-slate-700/50 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-700/30">
+                            <td class="px-3 py-2">
+                                <input type="checkbox" checked="@_selectedCvs.Contains(c.CvId)" @onchange="e => ToggleCvSelection(c.CvId, e)" class="h-4 w-4 rounded accent-brand-600" />
+                            </td>
                             <td class="px-4 py-2">
                                 @if (c.Hidden)
                                 {
@@ -262,11 +270,6 @@ else
                                         <span class="ml-2 rounded bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 text-xs text-amber-700 dark:text-amber-400">@I18n.T("cv.draft")</span>
                                     }
                                 }
-                                @* Appearing context action on row hover (no per-row button column) *@
-                                <span class="ml-2 hidden gap-1 group-hover:inline-flex">
-                                    <button type="button" @onclick="() => RequestCvDelete(c)" title="@I18n.T("cv.delete")"
-                                            class="text-xs text-slate-400 hover:text-rose-500">🗑️</button>
-                                </span>
                             </td>
                             <td class="px-4 py-2">@(c.Status == CvStatus.Published ? I18n.T("cv.published") : I18n.T("cv.draft"))</td>
                             <td class="px-4 py-2 text-slate-500">@c.CreatedAt.ToString("MMM d, yyyy")</td>
@@ -274,7 +277,7 @@ else
                     }
                     @if (!_cvs.Any())
                     {
-                        <tr><td colspan="3" class="px-4 py-6 text-center text-slate-400">@I18n.T("profile.cvempty")</td></tr>
+                        <tr><td colspan="4" class="px-4 py-6 text-center text-slate-400">@I18n.T("profile.cvempty")</td></tr>
                     }
                 </tbody>
             </table>
@@ -289,6 +292,7 @@ else
     @if (_pendingCvDelete is not null || _pendingProjectDelete is not null)
     {
         var targetName = _pendingCvDelete?.PositionTitle ?? _pendingProjectDelete?.Name ?? "";
+        if (_pendingCvDelete is not null && _selectedCvs.Count > 1) targetName = $"{_selectedCvs.Count} CVs";
         <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
             <div class="w-full max-w-md rounded-2xl bg-white dark:bg-slate-800 p-5 shadow-2xl">
                 <div class="mb-4 flex items-center justify-between">
@@ -325,6 +329,7 @@ else
     private List<ProjectDto> _projects = [];
     private List<string> _allTags = [];
     private List<CvRow> _cvs = [];
+    private HashSet<int> _selectedCvs = [];
     private ProjectDto? _projectEdit;
     private System.Timers.Timer? _timer;
     private HashSet<int> _dirty = [];
@@ -659,6 +664,22 @@ else
 
     private void RequestCvDelete(CvRow c) => _pendingCvDelete = c;
 
+    private void DeleteSelectedCvs()
+    {
+        var first = _cvs.FirstOrDefault(x => _selectedCvs.Contains(x.CvId));
+        if (first is not null) RequestCvDelete(first);
+    }
+
+    private void ToggleAllCvs(ChangeEventArgs e)
+    {
+        _selectedCvs = e.Value is true ? new HashSet<int>(_cvs.Select(x => x.CvId)) : [];
+    }
+
+    private void ToggleCvSelection(int cvId, ChangeEventArgs e)
+    {
+        if (e.Value is true) _selectedCvs.Add(cvId); else _selectedCvs.Remove(cvId);
+    }
+
     private void RequestProjectDelete(ProjectDto p) => _pendingProjectDelete = p;
 
     private void CancelPendingDelete()
@@ -671,9 +692,10 @@ else
     {
         if (_pendingCvDelete is not null)
         {
-            var cv = _pendingCvDelete;
             _pendingCvDelete = null;
-            await DeleteCv(cv);
+            var targets = _cvs.Where(c => _selectedCvs.Contains(c.CvId)).ToList();
+            foreach (var c in targets) await DeleteCv(c);
+            _selectedCvs.Clear();
         }
         else if (_pendingProjectDelete is not null)
         {

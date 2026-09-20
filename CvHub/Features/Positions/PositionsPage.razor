@@ -21,8 +21,14 @@
 <AuthorizeView Roles="Admin,Recruiter">
     <div class="@ToolbarClass">
         <span class="text-sm font-medium">@_selected.Count @I18n.T("common.selected")</span>
+        <button type="button" @onclick="EditSelected" class="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-700">
+            ✏️ @I18n.T("pos.edit")
+        </button>
+        <button type="button" @onclick="DuplicateSelected" class="rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-amber-700">
+            ⧉ @I18n.T("pos.duplicate")
+        </button>
         <button type="button" @onclick="DeleteSelected" class="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-rose-700">
-            @I18n.T("common.delete")
+            🗑️ @I18n.T("common.delete")
         </button>
     </div>
 </AuthorizeView>
@@ -55,15 +61,6 @@
                     }
                     <td class="px-4 py-2">
                         <a href="positions/@row.Id" class="font-medium text-brand-600 dark:text-brand-400 hover:underline">@row.Title</a>
-                        @* Appearing context actions on row hover (no per-row button columns) *@
-                        @if (_canEdit)
-                        {
-                            <span class="ml-2 hidden gap-1 group-hover:inline-flex">
-                                <button type="button" @onclick='() => OpenEditor(row.Id)' title="@I18n.T("pos.edit")" class="text-xs text-slate-400 hover:text-brand-600">✏️</button>
-                                <button type="button" @onclick='() => Duplicate(row.Id)' title="@I18n.T("pos.duplicate")" class="text-xs text-slate-400 hover:text-brand-600">⧉</button>
-                                <button type="button" @onclick='() => DeleteOne(row.Id)' title="@I18n.T("pos.delete")" class="text-xs text-slate-400 hover:text-rose-600">🗑️</button>
-                            </span>
-                        }
                     </td>
                     <td class="px-4 py-2 text-slate-600 dark:text-slate-300">@row.Company</td>
                     <td class="px-4 py-2 text-slate-600 dark:text-slate-300">@row.Level</td>
@@ -156,12 +153,14 @@
         await LoadAsync();
     }
 
-    private async Task DeleteOne(int id)
+    private void EditSelected()
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
-        await db.Positions.Where(p => p.Id == id)
-            .ExecuteUpdateAsync(s => s.SetProperty(p => p.IsDeleted, true).SetProperty(p => p.UpdatedAt, DateTimeOffset.UtcNow));
-        await LoadAsync();
+        if (_selected.FirstOrDefault() is int id and > 0) OpenEditor(id);
+    }
+
+    private async Task DuplicateSelected()
+    {
+        if (_selected.FirstOrDefault() is int id and > 0) await Duplicate(id);
     }
 
     private async Task Duplicate(int id)
