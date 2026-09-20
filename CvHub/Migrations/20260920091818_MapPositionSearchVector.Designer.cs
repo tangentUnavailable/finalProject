@@ -3,6 +3,7 @@ using System;
 using CvHub.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using NpgsqlTypes;
@@ -12,9 +13,11 @@ using NpgsqlTypes;
 namespace CvHub.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260920091818_MapPositionSearchVector")]
+    partial class MapPositionSearchVector
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -130,21 +133,6 @@ namespace CvHub.Migrations
 
                     b.Property<string>("Options")
                         .HasColumnType("text");
-
-                    b.Property<int?>("MinLength")
-                        .HasColumnType("integer");
-
-                    b.Property<int?>("MaxLength")
-                        .HasColumnType("integer");
-
-                    b.Property<string?>("RegexPattern")
-                        .HasColumnType("text");
-
-                    b.Property<double?>("MinValue")
-                        .HasColumnType("double precision");
-
-                    b.Property<double?>("MaxValue")
-                        .HasColumnType("double precision");
 
                     b.Property<int>("Type")
                         .HasColumnType("integer");

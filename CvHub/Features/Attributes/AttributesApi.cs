@@ -25,14 +25,14 @@ public static class AttributesApi
             {
                 var idList = ids.Split(',').Select(int.Parse).ToList();
                 return Results.Ok(await q.Where(a => idList.Contains(a.Id))
-                    .Select(a => new { a.Id, a.Name, a.Category, a.Type, Version = (uint?)db.Entry(a).Property("xmin").CurrentValue }).ToListAsync());
+                    .Select(a => new { a.Id, a.Name, a.Category, a.Type, a.MinLength, a.MaxLength, a.RegexPattern, a.MinValue, a.MaxValue, Version = (uint?)db.Entry(a).Property("xmin").CurrentValue }).ToListAsync());
             }
             if (!string.IsNullOrEmpty(prefix))
                 q = q.Where(a => a.Name.ToLower().StartsWith(prefix.ToLower()));
             if (!string.IsNullOrEmpty(category))
                 q = q.Where(a => a.Category == category);
             var rows = await q.OrderBy(a => a.Name).Take(20)
-                .Select(a => new { a.Id, a.Name, a.Category, a.Type, Version = (uint?)db.Entry(a).Property("xmin").CurrentValue }).ToListAsync();
+                .Select(a => new { a.Id, a.Name, a.Category, a.Type, a.MinLength, a.MaxLength, a.RegexPattern, a.MinValue, a.MaxValue, Version = (uint?)db.Entry(a).Property("xmin").CurrentValue }).ToListAsync();
             return Results.Ok(rows);
         });
 
@@ -112,4 +112,5 @@ public static class AttributesApi
     }
 }
 
-public record AttrUpsert(string Name, string Category, string? Description, AttributeType Type, string? Options, uint? Version);
+public record AttrUpsert(string Name, string Category, string? Description, AttributeType Type, string? Options, uint? Version,
+    int? MinLength = null, int? MaxLength = null, string? RegexPattern = null, double? MinValue = null, double? MaxValue = null);

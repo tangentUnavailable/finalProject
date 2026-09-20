@@ -45,7 +45,7 @@ else if (_position is not null)
             @if (_canEdit)
             {
                 <button type="button" @onclick='() => OpenEditor(_position.Id)' class="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-sm font-medium hover:border-brand-500 hover:text-brand-600">✏️ @I18n.T("pos.edit")</button>
-                <button type="button" @onclick='() => OpenEditor(_position.Id)' class="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-sm font-medium hover:border-brand-500 hover:text-brand-600">⧉ @I18n.T("pos.duplicate")</button>
+                <button type="button" @onclick="DuplicateHere" disabled="@_duplicating" class="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-sm font-medium hover:border-brand-500 hover:text-brand-600 disabled:opacity-50">⧉ @I18n.T("pos.duplicate")</button>
             }
             @if (_candidateCvId is int existingCv)
             {
@@ -180,6 +180,21 @@ else if (_position is not null)
     private bool _isRecruiterOrAdmin;
     private bool _editorOpen;
     private int? _editId;
+    private bool _duplicating;
+
+    private async Task DuplicateHere()
+    {
+        _duplicating = true;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var auth = await AuthState.GetAuthenticationStateAsync();
+            var uid = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+            var newId = await PositionCommands.DuplicateAsync(db, Id, uid);
+            if (newId is int id) Nav.NavigateTo($"positions/{id}");
+        }
+        finally { _duplicating = false; }
+    }
 
     protected override async Task OnInitializedAsync()
     {

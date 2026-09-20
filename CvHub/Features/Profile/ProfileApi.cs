@@ -6,6 +6,9 @@ using CvHub.Shared;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using CvHub.Features.Badges;
+using System.Text;
+using System.Text.RegularExpressions;
 
 namespace CvHub.Features.Profile;
 
@@ -33,6 +36,11 @@ public static class ProfileApi
 
             var def = await db.Attributes.FirstOrDefaultAsync(a => a.Id == attrId);
             if (def is null) return Results.NotFound();
+
+            // Attribute tuning validation (optional req #4): enforce length / regex / range on the incoming value.
+            var tuningError = ValidateTuning(def, req);
+            if (tuningError is not null)
+                return Results.Json(new { message = tuningError }, statusCode: 409);
 
             var value = await db.AttributeValues.FirstOrDefaultAsync(v => v.UserId == targetUser && v.AttributeId == attrId);
             var isNew = value is null;
@@ -196,6 +204,28 @@ public static class ProfileApi
                 .ToListAsync();
             return Results.Ok(pinned);
         });
+
+        // ---------- Badges (optional req #3): JSON list + downloadable SVG panel ----------
+        profileGroup.MapGet("/api/users/{userId}/badges", async (string userId, ApplicationDbContext db,
+            UserManager<ApplicationUser> users, HttpContext http) =>
+        {
+            var uid = users.GetUserId(http.User);
+            if (uid is null) return Results.Unauthorized();
+            if (userId != uid && !http.User.IsRecruiterOrAdmin()) return Results.Forbid();
+            var earned = await BadgeService.EarnedAsync(db, userId);
+            return Results.Ok(earned.Select(b => new { b.Id, b.Name, b.Description, b.Color, b.SvgPath }));
+        });
+
+        profileGroup.MapGet("/api/users/{userId}/badges.svg", async (string userId, ApplicationDbContext db,
+            UserManager<ApplicationUser> users, HttpContext http) =>
+        {
+            var uid = users.GetUserId(http.User);
+            if (uid is null) return Results.Unauthorized();
+            if (userId != uid && !http.User.IsRecruiterOrAdmin()) return Results.Forbid();
+            var earned = await BadgeService.EarnedAsync(db, userId);
+            return Results.File(System.Text.Encoding.UTF8.GetBytes(BadgeService.RenderPanel(earned)),
+                "image/svg+xml; charset=utf-8", $"badges-{userId}.svg");
+        });
     }
 
     private static void ApplyValue(AttributeValue value, AttributeType type, SaveValueRequest req)
@@ -211,6 +241,32 @@ public static class ProfileApi
             case AttributeType.Boolean: value.BoolValue = req.BoolValue; break;
             case AttributeType.OneOfMany: value.OptionValue = req.OptionValue; break;
         }
+    }
+
+    private static string? ValidateTuning(AttributeDef def, SaveValueRequest req)
+    {
+        switch (def.Type)
+        {
+            case AttributeType.String:
+            case AttributeType.Text:
+                var s = def.Type == AttributeType.String ? req.StringValue : req.TextValue;
+                if (s is not null)
+                {
+                    if (def.MinLength is int min && s.Length < min) return $"Value must be at least {min} characters.";
+                    if (def.MaxLength is int max && s.Length > max) return $"Value must be at most {max} characters.";
+                    if (!string.IsNullOrEmpty(def.RegexPattern) && !Regex.IsMatch(s, def.RegexPattern))
+                        return "Value does not match the required format.";
+                }
+                break;
+            case AttributeType.Numeric:
+                if (req.NumericValue is double n)
+                {
+                    if (def.MinValue is double lo && n < lo) return $"Value must be at least {lo}.";
+                    if (def.MaxValue is double hi && n > hi) return $"Value must be at most {hi}.";
+                }
+                break;
+        }
+        return null;
     }
 }
 

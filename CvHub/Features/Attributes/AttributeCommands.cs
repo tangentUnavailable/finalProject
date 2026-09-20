@@ -18,7 +18,10 @@ public static class AttributeCommands
         var attr = new AttributeDef
         {
             Name = name, Category = req.Category, Description = req.Description,
-            Type = req.Type, Options = req.Options, IsBuiltIn = false, CreatedAt = DateTimeOffset.UtcNow,
+            Type = req.Type, Options = req.Options,
+            MinLength = req.MinLength, MaxLength = req.MaxLength, RegexPattern = req.RegexPattern,
+            MinValue = req.MinValue, MaxValue = req.MaxValue,
+            IsBuiltIn = false, CreatedAt = DateTimeOffset.UtcNow,
         };
         db.Attributes.Add(attr);
         try { await db.SaveChangesAsync(ct); }
@@ -47,6 +50,8 @@ public static class AttributeCommands
 
         attr.Name = name; attr.Category = req.Category; attr.Description = req.Description;
         attr.Type = req.Type; attr.Options = req.Options;
+        attr.MinLength = req.MinLength; attr.MaxLength = req.MaxLength;
+        attr.RegexPattern = req.RegexPattern; attr.MinValue = req.MinValue; attr.MaxValue = req.MaxValue;
         try { await db.SaveChangesAsync(ct); }
         catch (DbUpdateException) { return (false, $"Attribute '{name}' already exists.", null); }
         return (true, null, db.Entry(attr).Property("xmin").CurrentValue as uint?);

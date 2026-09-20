@@ -25,6 +25,15 @@ public class AttributeDef : Entity
     /// <summary>Dropdown options for OneOfMany attributes, newline-separated.</summary>
     public string? Options { get; set; }
 
+    // Optional "tuning" (optional requirement #4): enforced when a candidate fills a value.
+    //   String / Text  -> MinLength / MaxLength / RegexPattern
+    //   Numeric        -> MinValue / MaxValue
+    public int? MinLength { get; set; }
+    public int? MaxLength { get; set; }
+    public string? RegexPattern { get; set; }
+    public double? MinValue { get; set; }
+    public double? MaxValue { get; set; }
+
     public bool IsBuiltIn { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; }
@@ -121,6 +130,9 @@ public class Position : Entity
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
     public bool IsDeleted { get; set; }
+
+    /// <summary>Store-generated tsvector column (created by raw SQL in the initial migration) backing the GIN full-text index.</summary>
+    public NpgsqlTypes.NpgsqlTsVector? SearchVector { get; set; }
 
     public ICollection<PositionAttribute> Attributes { get; set; } = [];
     public ICollection<PositionFilter> Filters { get; set; } = [];

@@ -51,7 +51,13 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         b.Entity<Position>().HasQueryFilter(p => !p.IsDeleted);
         b.Entity<Cv>().HasQueryFilter(c => !c.IsDeleted);
 
-        // ---- Full-text search: tsvector generated columns + GIN indexes are added via raw SQL in the migration ----
+        // ---- Full-text search: tsvector generated columns + GIN indexes are added via raw SQL in the migration.
+        // The Position.search_vector column is mapped here so queries can target the indexed column directly
+        // (EF never writes it: it is GENERATED ALWAYS ... STORED in PostgreSQL). ----
+        b.Entity<Position>().Property(p => p.SearchVector)
+            .HasColumnName("search_vector")
+            .HasColumnType("tsvector")
+            .ValueGeneratedOnAddOrUpdate();
 
         // ---- Indexes for common queries ----
         b.Entity<Position>().HasIndex(p => new { p.UpdatedAt });

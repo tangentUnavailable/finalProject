@@ -4,6 +4,7 @@
 @using CvHub.Shared
 @using CvHub.Infrastructure
 @using Microsoft.EntityFrameworkCore
+@using CvHub.Features.Badges
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
 @inject AuthenticationStateProvider AuthState
 @inject NavigationManager Nav
@@ -82,6 +83,23 @@ else
             </tbody>
         </table>
     </div>
+
+    @if (_badges.Length > 0)
+    {
+        <h2 class="mb-2 mt-6 text-sm font-bold uppercase tracking-wide text-slate-400">@I18n.T("badges.title")</h2>
+        <div class="flex flex-wrap gap-3">
+            @foreach (var b in _badges)
+            {
+                <div class="flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2">
+                    <svg class="h-6 w-6 shrink-0" viewBox="0 0 24 24"><path fill="@b.Color" d="@b.SvgPath" /></svg>
+                    <div>
+                        <div class="text-sm font-semibold">@b.Name</div>
+                        <div class="text-xs text-slate-400">@b.Description</div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
 }
 
 @code {
@@ -93,6 +111,7 @@ else
     private List<ValueRow> _infoValues = [];
     private List<ProjectDto> _projects = [];
     private List<CvRow> _cvs = [];
+    private Badge[] _badges = [];
 
     protected override async Task OnInitializedAsync()
     {
@@ -130,6 +149,8 @@ else
         _cvs = await db.Cvs.Where(c => c.UserId == UserId && c.Status == CvStatus.Published)
             .Select(c => new CvRow { Id = c.Id, Title = c.Position.Title, Likes = db.Likes.Count(l => l.CvId == c.Id) })
             .ToListAsync();
+
+        _badges = await BadgeService.EarnedAsync(db, UserId);
     }
 
     private static string? CvFieldValuePlain(AttributeType t, Domain.AttributeValue? v) => t switch

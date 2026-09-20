@@ -10,6 +10,7 @@
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
 @inject AuthenticationStateProvider AuthState
 @inject NavigationManager Nav
+@inject IJSRuntime JS
 @implements IDisposable
 
 <PageTitle>CV — CvHub</PageTitle>
@@ -38,6 +39,10 @@ else
                 <span class="@(_liked ? "text-amber-500" : "text-slate-400")">👍</span> @_likeCount
             </button>
         }
+        <button type="button" @onclick="Print" title="@I18n.T("cv.print")"
+                class="no-print rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-sm hover:border-brand-500 hover:text-brand-600">
+            🖨️ @I18n.T("cv.print")
+        </button>
     </div>
 
     @if (_hiddenForCandidate)
@@ -48,6 +53,19 @@ else
     }
 
     <article class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-6 shadow-sm">
+        @* Print-only header with QR code linking back to the CV (spec: printable documents with QR codes). *@
+        <div class="print-only mb-4 flex items-start justify-between gap-4 border-b border-slate-300 pb-3">
+            <div>
+                <div class="text-lg font-bold">@(_nameFirst?.StringValue ?? "") @(_nameLast?.StringValue ?? "")</div>
+                <div class="text-sm">@_view.PositionTitle</div>
+                <div class="mt-1 text-xs text-slate-500 break-all">@_cvUrl</div>
+            </div>
+            @if (_qrDataUrl is not null)
+            {
+                <img src="@_qrDataUrl" class="h-24 w-24" alt="QR" />
+            }
+        </div>
+
         <header class="border-b border-slate-200 dark:border-slate-700 pb-4">
             <div class="flex items-center gap-4">
                 @if (_photoField is not null && !string.IsNullOrEmpty(_photoField.ImageUrl))
@@ -177,6 +195,8 @@ else
     private List<ProjectDto> _candidateProjects = [];
     private HashSet<int> _selectedProjectIds = [];
     private int _maxProjects = 5;
+    private string? _qrDataUrl;
+    private string _cvUrl = "";
 
     private string StatusBadgeClass => _view!.Status == CvStatus.Published
         ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400"
@@ -207,6 +227,10 @@ else
 
         _view = await CvComposer.ComposeAsync(db, cv);
         if (_view is null) { Nav.NavigateTo("not-found"); return; }
+
+        // Printable version: QR code pointing back at this CV page.
+        _cvUrl = Nav.Uri;
+        _qrDataUrl = Qr.DataUrl(_cvUrl);
 
         // Hidden-if-lost-access (UI-level only; content is composed live).
         if (cv.UserId == uid && !isAdmin && !isRecruiter && cv.Position.Access == PositionAccess.Restricted)
@@ -332,7 +356,7 @@ else
 
     private void UpdateField((int AttrId, uint? Version, bool IsEmpty) patch)
     {
-        _view = _view with { Fields = _view!.Fields.Select(f => f.AttributeId == patch.AttrId ? f with { Version = patch.Version, IsEmpty = patch.IsEmpty } : f).ToList() };
+        _view = _view! with { Fields = _view!.Fields.Select(f => f.AttributeId == patch.AttrId ? f with { Version = patch.Version, IsEmpty = patch.IsEmpty } : f).ToList() };
         _sections = _view.Fields
             .Where(f => f.Name is not (BuiltInAttributeNames.Photo or BuiltInAttributeNames.FirstName or BuiltInAttributeNames.LastName))
             .GroupBy(f => f.Section ?? "Details").ToList();
@@ -366,6 +390,11 @@ else
         await db.SaveChangesAsync();
         _liked = like is null;
         _likeCount = await db.Likes.CountAsync(l => l.CvId == Id);
+    }
+
+    private async Task Print()
+    {
+        await JS.InvokeVoidAsync("window.print");
     }
 
     public void Dispose() { }

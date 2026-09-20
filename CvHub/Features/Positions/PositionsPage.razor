@@ -166,8 +166,10 @@
 
     private async Task Duplicate(int id)
     {
-        var http = new HttpClient { BaseAddress = new Uri(Nav.BaseUri) };
-        await http.PostAsync($"api/positions/{id}/duplicate", null);
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var uid = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        await PositionCommands.DuplicateAsync(db, id, uid);
         await LoadAsync();
     }
 

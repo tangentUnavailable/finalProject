@@ -79,26 +79,8 @@ public static class PositionsApi
         group.MapPost("/{id:int}/duplicate", async (int id, ApplicationDbContext db, UserManager<ApplicationUser> users, HttpContext http) =>
         {
             var uid = users.GetUserId(http.User)!;
-            var src = await db.Positions.Include(p => p.Attributes).Include(p => p.Filters).Include(p => p.Tags)
-                .FirstOrDefaultAsync(p => p.Id == id);
-            if (src is null) return Results.NotFound();
-
-            var copy = new Position
-            {
-                Title = src.Title + " (copy)", ShortDescription = src.ShortDescription, Company = src.Company,
-                Level = src.Level, Access = src.Access, MaxProjects = src.MaxProjects, CreatedByUserId = uid,
-                CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
-            };
-            db.Positions.Add(copy);
-            await db.SaveChangesAsync();
-
-            db.PositionAttributes.AddRange(src.Attributes.Select(a => new PositionAttribute
-            { PositionId = copy.Id, AttributeId = a.AttributeId, Required = a.Required, SortOrder = a.SortOrder, Section = a.Section }));
-            db.PositionFilters.AddRange(src.Filters.Select(f => new PositionFilter
-            { PositionId = copy.Id, AttributeId = f.AttributeId, Operator = f.Operator, Value = f.Value }));
-            db.PositionTags.AddRange(src.Tags.Select(t => new PositionTag { PositionId = copy.Id, TagId = t.TagId }));
-            await db.SaveChangesAsync();
-            return Results.Ok(new { id = copy.Id });
+            var newId = await PositionCommands.DuplicateAsync(db, id, uid);
+            return newId is null ? Results.NotFound() : Results.Ok(new { id = newId });
         });
     }
 

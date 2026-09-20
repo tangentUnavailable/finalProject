@@ -18,9 +18,9 @@ public static class SearchEndpoints
         var results = new SearchResults();
         if (string.IsNullOrWhiteSpace(q)) return results;
 
+        // Hits the store-generated search_vector column (GIN-indexed) instead of recomputing tsvector per row.
         results.Positions = await db.Positions
-            .Where(p => EF.Functions.ToTsVector("simple", p.Title + " " + (p.ShortDescription ?? "") + " " + (p.Company ?? ""))
-                        .Matches(EF.Functions.WebSearchToTsQuery("simple", q)))
+            .Where(p => p.SearchVector!.Matches(EF.Functions.WebSearchToTsQuery("simple", q)))
             .OrderByDescending(p => p.UpdatedAt)
             .Take(20)
             .Select(p => new Hit(p.Id.ToString(), p.Title, p.Company, "positions/" + p.Id, "position"))

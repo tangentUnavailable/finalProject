@@ -10,7 +10,6 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject AuthenticationStateProvider AuthState
 @inject NavigationManager Nav
-@inject IJSRuntime JS
 @implements IDisposable
 
 <PageTitle>My Profile — CvHub</PageTitle>
@@ -227,7 +226,7 @@ else
         <div class="space-y-4">
             @foreach (var p in _projects)
             {
-                <ProjectCard Project="p" OnEdit="() => EditProject(p)" OnDeleted="async () => await DeleteProject(p)" />
+                <ProjectCard Project="p" OnEdit="() => EditProject(p)" OnDeleted="() => RequestProjectDelete(p)" />
             }
             @if (!_projects.Any())
             {
@@ -265,7 +264,7 @@ else
                                 }
                                 @* Appearing context action on row hover (no per-row button column) *@
                                 <span class="ml-2 hidden gap-1 group-hover:inline-flex">
-                                    <button type="button" @onclick="async () => await DeleteCv(c)" title="@I18n.T("cv.delete")"
+                                    <button type="button" @onclick="() => RequestCvDelete(c)" title="@I18n.T("cv.delete")"
                                             class="text-xs text-slate-400 hover:text-rose-500">🗑️</button>
                                 </span>
                             </td>
@@ -285,6 +284,26 @@ else
     @if (_projectEdit is not null)
     {
         <ProjectEditor Project="_projectEdit" TagsAll="_allTags" OnSaved="SaveProject" OnCancel="() => _projectEdit = null" />
+    }
+
+    @if (_pendingCvDelete is not null || _pendingProjectDelete is not null)
+    {
+        var targetName = _pendingCvDelete?.PositionTitle ?? _pendingProjectDelete?.Name ?? "";
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div class="w-full max-w-md rounded-2xl bg-white dark:bg-slate-800 p-5 shadow-2xl">
+                <div class="mb-4 flex items-center justify-between">
+                    <h3 class="text-lg font-semibold">@(_pendingCvDelete is not null ? I18n.T("cv.delete") : I18n.T("profile.deleteProject"))</h3>
+                    <button type="button" @onclick="CancelPendingDelete" class="text-slate-400 hover:text-slate-600">✕</button>
+                </div>
+                <p class="text-sm text-slate-500 dark:text-slate-400">
+                    @I18n.T("profile.deleteWarning") <span class="font-medium text-slate-700 dark:text-slate-200">@targetName</span>. @I18n.T("profile.deleteIrreversible")
+                </p>
+                <div class="mt-4 flex justify-end gap-2">
+                    <button type="button" @onclick="CancelPendingDelete" class="rounded-lg border border-slate-300 dark:border-slate-600 px-4 py-2 text-sm font-semibold hover:bg-slate-100 dark:hover:bg-slate-700">@I18n.T("common.cancel")</button>
+                    <button type="button" @onclick="ConfirmPendingDelete" class="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700">@I18n.T("common.delete")</button>
+                </div>
+            </div>
+        </div>
     }
 }
 
@@ -315,6 +334,8 @@ else
     private bool _phoneEdit;
     private string? _phoneMsg;
     private HashSet<int> _editingFields = [];
+    private CvRow? _pendingCvDelete;
+    private ProjectDto? _pendingProjectDelete;
 
     protected override async Task OnInitializedAsync()
     {
@@ -636,13 +657,40 @@ else
         await LoadAsync();
     }
 
+    private void RequestCvDelete(CvRow c) => _pendingCvDelete = c;
+
+    private void RequestProjectDelete(ProjectDto p) => _pendingProjectDelete = p;
+
+    private void CancelPendingDelete()
+    {
+        _pendingCvDelete = null;
+        _pendingProjectDelete = null;
+    }
+
+    private async Task ConfirmPendingDelete()
+    {
+        if (_pendingCvDelete is not null)
+        {
+            var cv = _pendingCvDelete;
+            _pendingCvDelete = null;
+            await DeleteCv(cv);
+        }
+        else if (_pendingProjectDelete is not null)
+        {
+            var project = _pendingProjectDelete;
+            _pendingProjectDelete = null;
+            await DeleteProject(project);
+        }
+    }
+
     private async Task DeleteCv(CvRow c)
     {
-        var confirmed = await JS.InvokeAsync<bool>("confirm", I18n.T("cv.delete") + "?");
-        if (!confirmed) return;
-        var http = new HttpClient { BaseAddress = new Uri(Nav.BaseUri) };
-        var resp = await http.DeleteAsync($"api/cvs/{c.CvId}");
-        if (resp.IsSuccessStatusCode) _cvs.Remove(c);
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var cv = await db.Cvs.FirstOrDefaultAsync(x => x.Id == c.CvId && x.UserId == _userId);
+        if (cv is null) return;
+        db.Cvs.Remove(cv);
+        await db.SaveChangesAsync();
+        _cvs.Remove(c);
     }
 
     public void Dispose()

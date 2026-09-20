@@ -51,6 +51,25 @@ html:not(.dark) .theme-light-only { display: revert; }
 html.lang-es .lang-es-only { display: revert; }
 html:not(.lang-es) .lang-en-only { display: revert; }
 
+/* Print / PDF mode for the CV page: hide chrome and interactive controls, show the
+   QR header, and force light colors (printers have no dark theme). */
+.print-only { display: none; }
+@media print {
+    header, footer, .no-print { display: none !important; }
+    .print-only { display: flex !important; }
+    html.dark body, html.dark .bg-slate-800, html.dark .bg-slate-900,
+    .bg-slate-800, .bg-slate-900, body {
+        background: white !important;
+        color: #0f172a !important;
+    }
+    html.dark *, * { color: #0f172a !important; box-shadow: none !important; }
+    .bg-brand-600 { background: #4f46e5 !important; color: white !important; }
+    .text-brand-600, .text-brand-400 { color: #4f46e5 !important; }
+    .bg-brand-50, .bg-brand-900\/40 { background: #eef2ff !important; }
+    .bg-brand-900\/40 { background: #eef2ff !important; }
+    .rounded-2xl, .rounded-xl, .rounded-lg { border-color: #cbd5e1 !important; }
+}
+
 /* Markdown content styling */
 .md-content { @apply text-sm leading-relaxed; }
 .md-content p { @apply my-2; }

@@ -102,7 +102,7 @@ builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 // ---------- Identity ----------
 builder.Services.AddIdentityCore<ApplicationUser>(options =>
     {
-        options.SignIn.RequireConfirmedAccount = false;
+        options.SignIn.RequireConfirmedAccount = builder.Configuration.GetValue<bool>("Identity:RequireConfirmedEmail", false);
         options.Stores.SchemaVersion = IdentitySchemaVersions.Version3;
         options.Lockout.AllowedForNewUsers = true;
     })
@@ -113,7 +113,7 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
 
 builder.Services.AddScoped<IUserClaimsPrincipalFactory<ApplicationUser>, AppClaimsPrincipalFactory>();
 
-builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSender>();
+builder.Services.AddSingleton<IEmailSender<ApplicationUser>, EmailSender>();
 
 // ---------- Markdown ----------
 builder.Services.AddSingleton(sp => new MarkdownPipelineBuilder()

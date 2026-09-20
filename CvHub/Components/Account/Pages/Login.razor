@@ -101,8 +101,10 @@
     [SupplyParameterFromQuery]
     private string? ReturnUrl { get; set; }
 
+    #pragma warning disable BL0008
     [SupplyParameterFromForm]
     private InputModel Input { get; set; } = new();
+    #pragma warning restore BL0008
 
     protected override void OnInitialized()
     {

@@ -55,6 +55,31 @@ public static class PositionCommands
     public static async Task<List<TagRow>> AllTagsAsync(ApplicationDbContext db, CancellationToken ct = default) =>
         await db.Tags.OrderBy(t => t.Name).Select(t => new TagRow(t.Id, t.Name)).ToListAsync(ct);
 
+    /// <summary>Duplicates a position with all its attributes, filters and tags. Returns the new id.</summary>
+    public static async Task<int?> DuplicateAsync(ApplicationDbContext db, int id, string createdByUserId, CancellationToken ct = default)
+    {
+        var src = await db.Positions.Include(p => p.Attributes).Include(p => p.Filters).Include(p => p.Tags)
+            .FirstOrDefaultAsync(p => p.Id == id, ct);
+        if (src is null) return null;
+
+        var copy = new Position
+        {
+            Title = src.Title + " (copy)", ShortDescription = src.ShortDescription, Company = src.Company,
+            Level = src.Level, Access = src.Access, MaxProjects = src.MaxProjects, CreatedByUserId = createdByUserId,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+        };
+        db.Positions.Add(copy);
+        await db.SaveChangesAsync(ct);
+
+        db.PositionAttributes.AddRange(src.Attributes.Select(a => new PositionAttribute
+        { PositionId = copy.Id, AttributeId = a.AttributeId, Required = a.Required, SortOrder = a.SortOrder, Section = a.Section }));
+        db.PositionFilters.AddRange(src.Filters.Select(f => new PositionFilter
+        { PositionId = copy.Id, AttributeId = f.AttributeId, Operator = f.Operator, Value = f.Value }));
+        db.PositionTags.AddRange(src.Tags.Select(t => new PositionTag { PositionId = copy.Id, TagId = t.TagId }));
+        await db.SaveChangesAsync(ct);
+        return copy.Id;
+    }
+
     public static async Task<PosView?> LoadAsync(ApplicationDbContext db, int id, CancellationToken ct = default)
     {
         var p = await db.Positions.Where(x => x.Id == id)
