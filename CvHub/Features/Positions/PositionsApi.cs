@@ -17,7 +17,7 @@ public static class PositionsApi
 
         group.MapGet("/list", async (ApplicationDbContext db) =>
         {
-            var rows = await db.Positions
+            var rows = await db.Positions.AsNoTracking()
                 .Select(p => new
                 {
                     p.Id, p.Title, p.Company, p.Level, p.Access, p.UpdatedAt,
@@ -28,7 +28,7 @@ public static class PositionsApi
         });
 
         group.MapGet("/", async (ApplicationDbContext db) =>
-            await db.Positions.OrderByDescending(p => p.UpdatedAt).Take(200)
+            await db.Positions.AsNoTracking().OrderByDescending(p => p.UpdatedAt).Take(200)
                 .Select(p => new { p.Id, p.Title, p.Company, p.Level, p.Access, p.UpdatedAt })
                 .ToListAsync());
 

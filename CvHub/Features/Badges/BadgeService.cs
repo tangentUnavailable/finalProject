@@ -31,19 +31,26 @@ public static class BadgeService
 
     public static async Task<Badge[]> EarnedAsync(ApplicationDbContext db, string userId)
     {
-        var projects = await db.Projects.CountAsync(p => p.UserId == userId);
-        var cvs = await db.Cvs.CountAsync(c => c.UserId == userId);
-        var likeCvIds = db.Cvs.Where(c => c.UserId == userId).Select(c => c.Id);
-        var likesReceived = await db.Likes.CountAsync(l => likeCvIds.Contains(l.CvId));
-        var likesGiven = await db.Likes.CountAsync(l => l.UserId == userId);
-        var hasPublishedCv = await db.Cvs.AnyAsync(c => c.UserId == userId && c.Status == CvStatus.Published);
+        // Single aggregate round-trip instead of five sequential queries.
+        var m = await db.Users
+            .Where(u => u.Id == userId)
+            .Select(u => new
+            {
+                Projects = db.Projects.Count(p => p.UserId == userId),
+                Cvs = db.Cvs.Count(c => c.UserId == userId),
+                LikesReceived = db.Likes.Count(l => db.Cvs.Any(c => c.Id == l.CvId && c.UserId == userId)),
+                LikesGiven = db.Likes.Count(l => l.UserId == userId),
+                HasPublishedCv = db.Cvs.Any(c => c.UserId == userId && c.Status == CvStatus.Published),
+            })
+            .FirstOrDefaultAsync();
+        if (m is null) return [];
 
         var earned = new List<Badge>();
-        if (projects >= 10) earned.Add(Catalog[0]);
-        if (cvs >= 5) earned.Add(Catalog[1]);
-        if (likesReceived >= 25) earned.Add(Catalog[2]);
-        if (hasPublishedCv) earned.Add(Catalog[3]);
-        if (likesGiven >= 5) earned.Add(Catalog[4]);
+        if (m.Projects >= 10) earned.Add(Catalog[0]);
+        if (m.Cvs >= 5) earned.Add(Catalog[1]);
+        if (m.LikesReceived >= 25) earned.Add(Catalog[2]);
+        if (m.HasPublishedCv) earned.Add(Catalog[3]);
+        if (m.LikesGiven >= 5) earned.Add(Catalog[4]);
         return earned.ToArray();
     }
 

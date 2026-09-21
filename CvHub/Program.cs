@@ -15,6 +15,7 @@ using CvHub.Services;
 using CvHub.Shared;
 using Markdig;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -40,6 +41,14 @@ builder.Services.AddSignalR(hubOptions =>
     hubOptions.ClientTimeoutInterval = TimeSpan.FromMinutes(5);
     hubOptions.HandshakeTimeout = TimeSpan.FromSeconds(30);
     hubOptions.KeepAliveInterval = TimeSpan.FromSeconds(15);
+});
+
+// ---------- Response compression (JSON APIs, SVG, WASM payloads) ----------
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.MimeTypes = ResponseCompressionDefaults.MimeTypes
+        .Concat(["application/wasm", "application/octet-stream"]);
 });
 
 // ---------- Razor components (Auto render mode) ----------
@@ -171,6 +180,7 @@ else
 }
 // app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true); // Disabled - interferes with Blazor circuit
 app.UseHttpsRedirection();
+app.UseResponseCompression();
 
 // Per-request UI language from cookie (EN/ES; only UI strings are translated).
 app.Use((ctx, next) =>

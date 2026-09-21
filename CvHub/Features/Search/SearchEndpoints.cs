@@ -19,7 +19,7 @@ public static class SearchEndpoints
         if (string.IsNullOrWhiteSpace(q)) return results;
 
         // Hits the store-generated search_vector column (GIN-indexed) instead of recomputing tsvector per row.
-        results.Positions = await db.Positions
+        results.Positions = await db.Positions.AsNoTracking()
             .Where(p => p.SearchVector!.Matches(EF.Functions.WebSearchToTsQuery("simple", q)))
             .OrderByDescending(p => p.UpdatedAt)
             .Take(20)
@@ -28,7 +28,7 @@ public static class SearchEndpoints
 
         if (scope is "all" or "attributes")
         {
-            results.Attributes = await db.Attributes
+            results.Attributes = await db.Attributes.AsNoTracking()
                 .Where(a => EF.Functions.ToTsVector("simple", a.Name + " " + (a.Description ?? "") + " " + a.Category)
                             .Matches(EF.Functions.WebSearchToTsQuery("simple", q)))
                 .OrderBy(a => a.Name).Take(20)
@@ -36,7 +36,7 @@ public static class SearchEndpoints
                 .ToListAsync();
         }
 
-        results.Tags = await db.Tags
+        results.Tags = await db.Tags.AsNoTracking()
             .Where(t => t.Name.ToLower().StartsWith(q.ToLower()))
             .Take(10)
             .Select(t => new Hit(t.Id.ToString(), t.Name, null, "search?q=" + Uri.EscapeDataString(t.Name), "tag"))
@@ -51,7 +51,7 @@ public static class SearchEndpoints
     /// One aggregate SQL query (no per-row scans, no queries in loops).
     /// </summary>
     public static Task<List<Hit>> SearchCvsAsync(ApplicationDbContext db, string q) =>
-        db.Cvs
+        db.Cvs.AsNoTracking()
             .Where(c => c.Status == CvStatus.Published && !c.IsDeleted)
             .Where(c =>
                 // Any profile attribute value of the CV owner matches (incl. name attributes).

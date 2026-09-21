@@ -32,7 +32,7 @@ public static class CvsApi
         cvGroup.MapGet("/api/cvs/{id:int}", async (int id, ApplicationDbContext db, UserManager<ApplicationUser> users, HttpContext http) =>
         {
             var uid = users.GetUserId(http.User);
-            var cv = await db.Cvs.FirstOrDefaultAsync(c => c.Id == id);
+            var cv = await db.Cvs.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id);
             if (cv is null) return Results.NotFound();
             var isAdmin = http.User.IsAdmin();
             var isRecruiter = http.User.IsRecruiter();
@@ -45,7 +45,7 @@ public static class CvsApi
         cvGroup.MapGet("/api/cvs/{id:int}/projects", async (int id, ApplicationDbContext db, UserManager<ApplicationUser> users, HttpContext http) =>
         {
             var uid = users.GetUserId(http.User);
-            var cv = await db.Cvs.FirstOrDefaultAsync(c => c.Id == id);
+            var cv = await db.Cvs.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id);
             if (cv is null) return Results.NotFound();
             if (cv.UserId != uid && !http.User.IsAdmin())
                 return Results.Json(new { message = "Not your CV." }, statusCode: 403);
@@ -58,7 +58,7 @@ public static class CvsApi
             ApplicationDbContext db, UserManager<ApplicationUser> users, HttpContext http) =>
         {
             var uid = users.GetUserId(http.User);
-            var cv = await db.Cvs.FirstOrDefaultAsync(c => c.Id == id);
+            var cv = await db.Cvs.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id);
             if (cv is null) return Results.NotFound();
             if (cv.UserId != uid && !http.User.IsAdmin())
                 return Results.Json(new { message = "Not your CV." }, statusCode: 403);
@@ -131,7 +131,7 @@ public static class CvsApi
             UserManager<ApplicationUser> users, HttpContext http) =>
         {
             var uid = users.GetUserId(http.User);
-            var cv = await db.Cvs.FirstOrDefaultAsync(c => c.Id == id);
+            var cv = await db.Cvs.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id);
             if (cv is null) return Results.NotFound();
             if (cv.UserId != uid && !http.User.IsAdmin())
                 return Results.Json(new { message = "Not allowed." }, statusCode: 403);
@@ -147,7 +147,7 @@ public static class CvsApi
         {
             var uid = users.GetUserId(http.User);
             if (uid is null) return Results.Json(new { message = "Sign in required." }, statusCode: 401);
-            var cv = await db.Cvs.FirstOrDefaultAsync(c => c.Id == id);
+            var cv = await db.Cvs.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id);
             if (cv is null) return Results.NotFound();
             if (cv.UserId != uid && !http.User.IsAdmin())
                 return Results.Json(new { message = "Not your CV." }, statusCode: 403);

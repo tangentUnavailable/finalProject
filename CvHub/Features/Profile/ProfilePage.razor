@@ -419,7 +419,7 @@ else
         _phone ??= owner?.PhoneNumber;
         _phoneStored = _phone;
 
-        var pinned = await db.ProfileAttributes.Where(pa => pa.UserId == _userId)
+        var pinned = await db.ProfileAttributes.AsNoTracking().Where(pa => pa.UserId == _userId)
             .Join(db.Attributes, pa => pa.AttributeId, a => a.Id, (pa, a) => new { pa.SortOrder, Attr = a })
             .OrderBy(x => x.SortOrder).ToListAsync();
 
@@ -457,9 +457,9 @@ else
             .ToListAsync();
 
         var posIds = _cvs.Select(c => c.PositionId).ToHashSet();
-        var positionTitles = await db.Positions.Where(p => posIds.Contains(p.Id))
+        var positionTitles = await db.Positions.AsNoTracking().Where(p => posIds.Contains(p.Id))
             .ToDictionaryAsync(p => p.Id, p => p.Title);
-        var accessByPosition = await db.Positions.Include(p => p.Filters).ThenInclude(f => f.Attribute)
+        var accessByPosition = await db.Positions.AsNoTracking().Include(p => p.Filters).ThenInclude(f => f.Attribute)
             .Where(p => posIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id, p => p);
 
         foreach (var c in _cvs)

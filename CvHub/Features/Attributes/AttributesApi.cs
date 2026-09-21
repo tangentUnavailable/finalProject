@@ -40,7 +40,7 @@ public static class AttributesApi
         {
             var uid = users.GetUserId(http.User);
             if (uid is null) return Results.Ok(Array.Empty<object>());
-            var rows = await db.RecentAttributes.Where(r => r.UserId == uid)
+            var rows = await db.RecentAttributes.AsNoTracking().Where(r => r.UserId == uid)
                 .OrderByDescending(r => r.UsedAt).Take(5)
                 .Join(db.Attributes, r => r.AttributeId, a => a.Id, (r, a) => new { a.Id, a.Name, a.Category, a.Type })
                 .ToListAsync();
@@ -56,7 +56,7 @@ public static class AttributesApi
                 q = q.Where(a => a.Category == category);
             if (!string.IsNullOrEmpty(prefix))
                 q = q.Where(a => EF.Functions.ILike(a.Name, prefix + "%"));
-            var rows = await q.OrderBy(a => a.Name).Take(30)
+            var rows = await q.AsNoTracking().OrderBy(a => a.Name).Take(30)
                 .Select(a => new { a.Id, a.Name, a.Category, a.Type })
                 .ToListAsync();
             return Results.Ok(rows);
