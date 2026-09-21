@@ -48,6 +48,37 @@
             </label>
         }
 
+        @if (_type is AttributeType.String or AttributeType.Text)
+        {
+            <div class="mb-3 grid grid-cols-2 gap-3">
+                <label class="block text-sm">
+                    <span class="mb-1 block font-medium">Min length</span>
+                    <input type="number" min="0" @bind="_minLength" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5" />
+                </label>
+                <label class="block text-sm">
+                    <span class="mb-1 block font-medium">Max length</span>
+                    <input type="number" min="0" @bind="_maxLength" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5" />
+                </label>
+            </div>
+            <label class="mb-3 block text-sm">
+                <span class="mb-1 block font-medium">Regex validator (optional)</span>
+                <input type="text" @bind="_regex" placeholder="e.g. ^[A-Z]{2}-\d{4}$" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 font-mono text-xs" />
+            </label>
+        }
+        @if (_type == AttributeType.Numeric)
+        {
+            <div class="mb-3 grid grid-cols-2 gap-3">
+                <label class="block text-sm">
+                    <span class="mb-1 block font-medium">Min value</span>
+                    <input type="number" step="any" @bind="_minValue" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5" />
+                </label>
+                <label class="block text-sm">
+                    <span class="mb-1 block font-medium">Max value</span>
+                    <input type="number" step="any" @bind="_maxValue" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5" />
+                </label>
+            </div>
+        }
+
         @if (_error is not null)
         {
             <div class="mb-3 rounded-lg bg-rose-50 dark:bg-rose-900/30 px-3 py-2 text-sm text-rose-600 dark:text-rose-400">@_error</div>
@@ -69,6 +100,11 @@
     private string? _description;
     private AttributeType _type = AttributeType.String;
     private string? _options;
+    private int? _minLength;
+    private int? _maxLength;
+    private string? _regex;
+    private double? _minValue;
+    private double? _maxValue;
     private bool _busy;
     private string? _error;
     private uint? _version;
@@ -79,20 +115,32 @@
         {
             await using var db = await DbFactory.CreateDbContextAsync();
             var r = await db.Attributes.Where(a => a.Id == id)
-                .Select(a => new { a.Name, a.Category, a.Type, Version = (uint?)db.Entry(a).Property("xmin").CurrentValue })
+                .Select(a => new { a.Name, a.Category, a.Type, a.MinLength, a.MaxLength, a.RegexPattern, a.MinValue, a.MaxValue, Version = (uint?)db.Entry(a).Property("xmin").CurrentValue })
                 .FirstOrDefaultAsync();
-            if (r is not null) { _name = r.Name; _category = r.Category; _type = r.Type; _version = r.Version; }
+            if (r is not null)
+            {
+                _name = r.Name; _category = r.Category; _type = r.Type; _version = r.Version;
+                _minLength = r.MinLength; _maxLength = r.MaxLength; _regex = r.RegexPattern;
+                _minValue = r.MinValue; _maxValue = r.MaxValue;
+            }
         }
     }
 
     private async Task Save()
     {
         if (string.IsNullOrWhiteSpace(_name)) { _error = "Name is required."; return; }
+        if (!string.IsNullOrWhiteSpace(_regex))
+        {
+            try { _ = new System.Text.RegularExpressions.Regex(_regex); }
+            catch (ArgumentException) { _error = "Invalid regular expression."; return; }
+        }
         _busy = true; _error = null;
         try
         {
             await using var db = await DbFactory.CreateDbContextAsync();
-            var body = new AttrUpsert(_name.Trim(), _category, _description, _type, _options, AttributeId is null ? null : _version);
+            var body = new AttrUpsert(_name.Trim(), _category, _description, _type, _options,
+                AttributeId is null ? null : _version,
+                _minLength, _maxLength, string.IsNullOrWhiteSpace(_regex) ? null : _regex.Trim(), _minValue, _maxValue);
             bool ok;
             string? error;
             if (AttributeId is null)

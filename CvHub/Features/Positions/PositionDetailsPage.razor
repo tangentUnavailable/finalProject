@@ -46,6 +46,7 @@ else if (_position is not null)
             {
                 <button type="button" @onclick='() => OpenEditor(_position.Id)' class="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-sm font-medium hover:border-brand-500 hover:text-brand-600">✏️ @I18n.T("pos.edit")</button>
                 <button type="button" @onclick="DuplicateHere" disabled="@_duplicating" class="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-sm font-medium hover:border-brand-500 hover:text-brand-600 disabled:opacity-50">⧉ @I18n.T("pos.duplicate")</button>
+                <a href="/api/positions/@_position.Id/cvs/export" class="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-sm font-medium hover:border-brand-500 hover:text-brand-600">⬇ @I18n.T("csv.export")</a>
             }
             @if (_candidateCvId is int existingCv)
             {

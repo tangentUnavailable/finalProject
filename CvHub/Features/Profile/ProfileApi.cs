@@ -8,7 +8,6 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using CvHub.Features.Badges;
 using System.Text;
-using System.Text.RegularExpressions;
 
 namespace CvHub.Features.Profile;
 
@@ -38,7 +37,7 @@ public static class ProfileApi
             if (def is null) return Results.NotFound();
 
             // Attribute tuning validation (optional req #4): enforce length / regex / range on the incoming value.
-            var tuningError = ValidateTuning(def, req);
+            var tuningError = AttributeValueRules.Validate(def, req.StringValue, req.TextValue, req.NumericValue);
             if (tuningError is not null)
                 return Results.Json(new { message = tuningError }, statusCode: 409);
 
@@ -243,31 +242,6 @@ public static class ProfileApi
         }
     }
 
-    private static string? ValidateTuning(AttributeDef def, SaveValueRequest req)
-    {
-        switch (def.Type)
-        {
-            case AttributeType.String:
-            case AttributeType.Text:
-                var s = def.Type == AttributeType.String ? req.StringValue : req.TextValue;
-                if (s is not null)
-                {
-                    if (def.MinLength is int min && s.Length < min) return $"Value must be at least {min} characters.";
-                    if (def.MaxLength is int max && s.Length > max) return $"Value must be at most {max} characters.";
-                    if (!string.IsNullOrEmpty(def.RegexPattern) && !Regex.IsMatch(s, def.RegexPattern))
-                        return "Value does not match the required format.";
-                }
-                break;
-            case AttributeType.Numeric:
-                if (req.NumericValue is double n)
-                {
-                    if (def.MinValue is double lo && n < lo) return $"Value must be at least {lo}.";
-                    if (def.MaxValue is double hi && n > hi) return $"Value must be at most {hi}.";
-                }
-                break;
-        }
-        return null;
-    }
 }
 
 public record SaveValueRequest(

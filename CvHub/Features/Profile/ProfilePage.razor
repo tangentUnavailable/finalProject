@@ -5,6 +5,7 @@
 @attribute [Authorize]
 @using CvHub.Shared
 @using CvHub.Features.Profile
+@using CvHub.Features.Badges
 @using Microsoft.EntityFrameworkCore
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
 @inject IHttpClientFactory HttpClientFactory
@@ -196,6 +197,35 @@ else
                 </div>
             }
         </section>
+
+        <section class="mt-8">
+            <div class="mb-2 flex max-w-2xl items-center justify-between">
+                <h2 class="text-sm font-bold uppercase tracking-wide text-slate-400">@I18n.T("badges.title")</h2>
+                @if (_badges.Length > 0)
+                {
+                    <a href="/api/users/@_userId/badges.svg" download class="text-xs font-medium text-brand-600 hover:underline dark:text-brand-400">@I18n.T("badges.download")</a>
+                }
+            </div>
+            @if (_badges.Length == 0)
+            {
+                <p class="text-sm text-slate-400">@I18n.T("badges.none")</p>
+            }
+            else
+            {
+                <div class="flex flex-wrap gap-3">
+                    @foreach (var b in _badges)
+                    {
+                        <div class="flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2">
+                            <svg class="h-6 w-6 shrink-0" viewBox="0 0 24 24"><path fill="@b.Color" d="@b.SvgPath" /></svg>
+                            <div>
+                                <div class="text-sm font-semibold">@b.Name</div>
+                                <div class="text-xs text-slate-400">@b.Description</div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </section>
     }
     else if (_tab == "info")
     {
@@ -339,6 +369,7 @@ else
     private bool _phoneEdit;
     private string? _phoneMsg;
     private HashSet<int> _editingFields = [];
+    private Badge[] _badges = [];
     private CvRow? _pendingCvDelete;
     private ProjectDto? _pendingProjectDelete;
 
@@ -416,6 +447,9 @@ else
 
         _allTags = await db.Tags.OrderBy(t => t.Name).Select(t => t.Name).ToListAsync();
 
+        // Badges panel (optional req #3): computed live from activity counts.
+        _badges = await BadgeService.EarnedAsync(db, _userId);
+
         // Load the candidate's CVs first, then fetch only the positions those CVs belong to
         // (instead of scanning every position in the catalog).
         _cvs = await db.Cvs.Where(c => c.UserId == _userId).OrderByDescending(c => c.CreatedAt)
@@ -478,6 +512,16 @@ else
 
                 var def = defs.GetValueOrDefault(attrId);
                 if (def is null) { _dirty.Remove(attrId); continue; }
+
+                // Attribute tuning (optional req #4): never persist values that break the
+                // configured length/regex/range constraints — surface the message instead.
+                var tuningError = AttributeValueRules.Validate(def, f.StringValue, f.TextValue, f.NumericValue);
+                if (tuningError is not null)
+                {
+                    _dirty.Remove(attrId);
+                    _conflictMsg = tuningError;
+                    continue;
+                }
 
                 var value = existing.GetValueOrDefault(attrId);
                 var isNew = value is null;

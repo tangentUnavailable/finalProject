@@ -294,6 +294,15 @@ else
         var def = await db.Attributes.FirstOrDefaultAsync(a => a.Id == f.AttributeId);
         if (def is null) return;
 
+        // Attribute tuning (optional req #4): block in-place CV edits that break constraints.
+        var tuningError = AttributeValueRules.Validate(def, f.StringValue, f.TextValue, f.NumericValue);
+        if (tuningError is not null)
+        {
+            _publishError = tuningError;
+            await RefreshView();
+            return;
+        }
+
         var value = await db.AttributeValues.FirstOrDefaultAsync(v => v.UserId == _userId && v.AttributeId == f.AttributeId);
         var isNew = value is null;
 
