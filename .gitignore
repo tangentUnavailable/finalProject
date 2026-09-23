@@ -26,8 +26,6 @@ node_modules/
 .DS_Store
 Thumbs.db
 
-# Local database / freebuff
-.freebuff/
 
 # Cookies / test artifacts
 cookies.txt
@@ -46,5 +44,3 @@ publish/
 
 # Logs
 *.log
-# Local agent / sandbox config
-.poolside/
