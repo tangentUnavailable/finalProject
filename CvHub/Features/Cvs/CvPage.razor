@@ -197,6 +197,9 @@ else
     private int _maxProjects = 5;
     private string? _qrDataUrl;
     private string _cvUrl = "";
+    private System.Timers.Timer? _saveTimer;
+    private HashSet<int> _dirty = [];
+    private bool _saving;
 
     private string StatusBadgeClass => _view!.Status == CvStatus.Published
         ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400"
@@ -265,6 +268,12 @@ else
             _selectedProjectIds = (await db.CvProjects.Where(cp => cp.CvId == Id).Select(cp => cp.ProjectId).ToListAsync())
                 .ToHashSet();
         }
+
+        // Autosave: in-place edits only mark fields dirty in memory; this timer persists them
+        // (same pattern as ProfilePage, at 2 s). The database is never written per keystroke.
+        _saveTimer = new System.Timers.Timer(2000) { AutoReset = true };
+        _saveTimer.Elapsed += async (_, _) => await InvokeAsync(FlushDirtyAsync);
+        _saveTimer.Start();
     }
 
     private async Task ToggleProject(int projectId)
@@ -281,92 +290,138 @@ else
 
     private async Task RefreshView()
     {
+        await FlushDirtyAsync(); // never recompose from stale data while edits are pending
         await using var db = await DbFactory.CreateDbContextAsync();
         var cv = await db.Cvs.AsNoTracking().FirstOrDefaultAsync(c => c.Id == Id);
         if (cv is not null) _view = await CvComposer.ComposeAsync(db, cv) ?? _view;
     }
 
-    private async Task OnFieldChanged(CvFieldDto f)
+    // Editing a CV field updates the single master value in the profile. Keystrokes only
+    // touch in-memory state; FlushDirtyAsync (2 s timer) persists them, so the database is
+    // never written once per keystroke.
+    private void OnFieldChanged(CvFieldDto f)
     {
-        // Editing a CV field updates the single master value in the profile.
-        var wasEmpty = f.IsEmpty;
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var def = await db.Attributes.FirstOrDefaultAsync(a => a.Id == f.AttributeId);
-        if (def is null) return;
+        if (_view is null) return;
+        var current = _view.Fields.FirstOrDefault(x => x.AttributeId == f.AttributeId);
+        if (current is null) return;
 
-        // Attribute tuning (optional req #4): block in-place CV edits that break constraints.
-        var tuningError = AttributeValueRules.Validate(def, f.StringValue, f.TextValue, f.NumericValue);
-        if (tuningError is not null)
-        {
-            _publishError = tuningError;
-            await RefreshView();
-            return;
-        }
+        var wasEmpty = current.IsEmpty; // pre-edit emptiness, read from the view before patching
+        _view = _view with { Fields = _view.Fields.Select(x => x.AttributeId == f.AttributeId ? f : x).ToList() };
+        RebuildSections();
 
-        var value = await db.AttributeValues.FirstOrDefaultAsync(v => v.UserId == _userId && v.AttributeId == f.AttributeId);
-        var isNew = value is null;
+        if (f.Required && wasEmpty && !f.IsEmpty)
+            _view = _view with { MissingRequired = Math.Max(0, _view.MissingRequired - 1) };
+        else if (f.Required && !wasEmpty && f.IsEmpty)
+            _view = _view with { MissingRequired = _view.MissingRequired + 1 };
 
-        // Optimistic locking via xmin: the client echoes the version it read.
-        if (!isNew && f.Version is uint expected)
-        {
-            var current = db.Entry(value!).Property("xmin").CurrentValue as uint?;
-            if (current is uint cur && cur != expected)
-            {
-                _publishError = I18n.T("profile.conflict");
-                // Adopt the server state for this field.
-                UpdateField(new(f.AttributeId, cur, f.IsEmpty));
-                await RefreshView();
-                return;
-            }
-        }
+        _dirty.Add(f.AttributeId);
+        _publishError = null;
+        StateHasChanged();
+    }
 
-        if (isNew)
-        {
-            value = new AttributeValue { UserId = _userId, AttributeId = f.AttributeId };
-            db.AttributeValues.Add(value);
-        }
-
-        value!.StringValue = f.StringValue;
-        value.TextValue = f.TextValue;
-        value.ImageUrl = f.ImageUrl;
-        value.NumericValue = f.NumericValue;
-        value.DateValue = f.DateValue;
-        value.PeriodStart = f.PeriodStart;
-        value.PeriodEnd = f.PeriodEnd;
-        value.BoolValue = f.BoolValue;
-        value.OptionValue = f.OptionValue;
-
+    private async Task FlushDirtyAsync()
+    {
+        if (_view is null || _dirty.Count == 0 || _saving) return;
+        _saving = true;
         try
         {
-            await db.SaveChangesAsync();
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var dirty = _dirty.ToList();
+
+            // Batch-load definitions + existing values once (two queries, none per field).
+            var defs = await db.Attributes.Where(a => dirty.Contains(a.Id)).ToDictionaryAsync(a => a.Id);
+            var existing = await db.AttributeValues
+                .Where(v => v.UserId == _userId && dirty.Contains(v.AttributeId))
+                .ToDictionaryAsync(v => v.AttributeId);
+
+            foreach (var attrId in dirty)
+            {
+                var f = _view.Fields.FirstOrDefault(x => x.AttributeId == attrId);
+                var def = defs.GetValueOrDefault(attrId);
+                if (f is null || def is null) { _dirty.Remove(attrId); continue; }
+
+                // Attribute tuning (optional req #4): never persist values that break constraints.
+                var tuningError = AttributeValueRules.Validate(def, f.StringValue, f.TextValue, f.NumericValue);
+                if (tuningError is not null)
+                {
+                    _dirty.Remove(attrId);
+                    _publishError = tuningError;
+                    continue;
+                }
+
+                var value = existing.GetValueOrDefault(attrId);
+                var isNew = value is null;
+
+                // Optimistic locking via xmin: the field carries the version it was rendered with.
+                if (!isNew && f.Version is uint expected)
+                {
+                    var current = db.Entry(value!).Property("xmin").CurrentValue;
+                    if (current is uint cur && cur != expected)
+                    {
+                        _publishError = I18n.T("profile.conflict");
+                        _dirty.Remove(attrId);
+                        await RefreshView(); // adopt the server state for the whole view
+                        return;
+                    }
+                }
+
+                if (isNew)
+                {
+                    value = new AttributeValue { UserId = _userId, AttributeId = attrId };
+                    db.AttributeValues.Add(value);
+                }
+
+                value!.StringValue = f.StringValue;
+                value.TextValue = f.TextValue;
+                value.ImageUrl = f.ImageUrl;
+                value.NumericValue = f.NumericValue;
+                value.DateValue = f.DateValue;
+                value.PeriodStart = f.PeriodStart;
+                value.PeriodEnd = f.PeriodEnd;
+                value.BoolValue = f.BoolValue;
+                value.OptionValue = f.OptionValue;
+
+                try
+                {
+                    await db.SaveChangesAsync();
+                }
+                catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException)
+                {
+                    _publishError = I18n.T("profile.conflict");
+                    _dirty.Remove(attrId);
+                    continue;
+                }
+
+                UpdateField(new(attrId, db.Entry(value).Property("xmin").CurrentValue as uint?, CvComposer.IsEmpty(value, def.Type)));
+
+                // A value first created inside the CV becomes part of the profile too.
+                if (isNew)
+                    await CvComposer.EnsureProfileAttributeAsync(db, _userId, attrId);
+
+                _dirty.Remove(attrId);
+            }
         }
-        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException)
+        catch (Exception ex)
         {
-            _publishError = I18n.T("profile.conflict");
-            await RefreshView();
-            return;
+            // Never let the timer thread kill the circuit.
+            Console.Error.WriteLine($"cv autosave failed: {ex.Message}");
         }
-
-        var newVersion = db.Entry(value).Property("xmin").CurrentValue as uint?;
-        var isEmptyNow = CvComposer.IsEmpty(value, def.Type);
-
-        // Update the field in the view with new version and IsEmpty status
-        UpdateField(new(f.AttributeId, newVersion, isEmptyNow));
-        
-        // If this was a newly created value (not previously pinned to profile), ensure it's in the profile
-        if (isNew)
+        finally
         {
-            await CvComposer.EnsureProfileAttributeAsync(db, _userId, f.AttributeId);
+            _saving = false;
         }
-
-        if (wasEmpty && !isEmptyNow)
-            _view = _view! with { MissingRequired = Math.Max(0, _view.MissingRequired - 1) };
+        StateHasChanged();
     }
 
     private void UpdateField((int AttrId, uint? Version, bool IsEmpty) patch)
     {
         _view = _view! with { Fields = _view!.Fields.Select(f => f.AttributeId == patch.AttrId ? f with { Version = patch.Version, IsEmpty = patch.IsEmpty } : f).ToList() };
-        _sections = _view.Fields
+        RebuildSections();
+    }
+
+    private void RebuildSections()
+    {
+        _sections = _view!.Fields
             .Where(f => f.Name is not (BuiltInAttributeNames.Photo or BuiltInAttributeNames.FirstName or BuiltInAttributeNames.LastName))
             .GroupBy(f => f.Section ?? "Details").ToList();
     }
@@ -374,6 +429,7 @@ else
     private async Task Publish()
     {
         _publishError = null;
+        await FlushDirtyAsync(); // persist pending edits before validating completeness
         await using var db = await DbFactory.CreateDbContextAsync();
         var (ok, error) = await CvService.PublishAsync(db, Id);
         if (ok)
@@ -406,7 +462,11 @@ else
         await JS.InvokeVoidAsync("window.print");
     }
 
-    public void Dispose() { }
+    public void Dispose()
+    {
+        _saveTimer?.Dispose();
+        _saveTimer = null;
+    }
 
     private sealed record SaveResult(uint? Version, bool Created);
 }
