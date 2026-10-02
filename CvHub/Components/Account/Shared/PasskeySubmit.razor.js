@@ -55,6 +55,7 @@ customElements.define('passkey-submit', class extends HTMLElement {
         this.internals.form.addEventListener('submit', (event) => {
             if (event.submitter?.name === '__passkeySubmit') {
                 event.preventDefault();
+                this.clearValidationFeedback();
                 this.obtainAndSubmitCredential();
             }
         });
@@ -64,6 +65,22 @@ customElements.define('passkey-submit', class extends HTMLElement {
 
     disconnectedCallback() {
         this.abortController?.abort();
+    }
+
+    // "Email and password is required" is meaningless during a passkey sign-in: the
+    // credential authenticates on its own and both fields stay empty. The messages are
+    // server-rendered, so without this they linger on screen behind the WebAuthn prompt
+    // and read as a failure the user cannot clear.
+    clearValidationFeedback() {
+        const form = this.internals?.form;
+        if (!form) return;
+        form.querySelectorAll('[aria-invalid="true"]').forEach((el) => {
+            el.removeAttribute('aria-invalid');
+            el.classList.remove('invalid');
+        });
+        form.querySelectorAll('[data-validation-message]').forEach((el) => {
+            el.textContent = '';
+        });
     }
 
     async obtainCredential(useConditionalMediation, signal) {

@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Import wizard view lives in cvhub_position_views.xml (single-file views for this module). -->
+</odoo>

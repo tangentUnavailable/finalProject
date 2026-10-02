@@ -230,3 +230,53 @@ public class CvAttributeVersion : Entity
     public uint Version { get; set; }
     public DateTimeOffset ChangedAt { get; set; }
 }
+
+/// <summary>
+/// CRM link for one site user: the Salesforce Account + Contact created from their profile.
+/// One row per user — a re-sync updates the same Salesforce records instead of duplicating them.
+/// </summary>
+public class CrmLink : Entity
+{
+    [Required]
+    public string UserId { get; set; } = "";
+
+    /// <summary>18-char Salesforce record Id of the Account.</summary>
+    [MaxLength(32)]
+    public string SfAccountId { get; set; } = "";
+
+    /// <summary>18-char Salesforce record Id of the linked Contact.</summary>
+    [MaxLength(32)]
+    public string SfContactId { get; set; } = "";
+
+    /// <summary>Instance URL returned by the OAuth token response (per-org, e.g. https://org.my.salesforce.com).</summary>
+    [MaxLength(256)]
+    public string InstanceUrl { get; set; } = "";
+
+    /// <summary>Salesforce refresh token (web-server flow); lets later requests get fresh access tokens.</summary>
+    [MaxLength(512)]
+    public string? RefreshToken { get; set; }
+
+    /// <summary>Newsletter opt-in captured in the sync form.</summary>
+    public bool NewsletterOptIn { get; set; }
+
+    public DateTimeOffset SyncedAt { get; set; }
+}
+
+/// <summary>
+/// API token for external integrations (e.g. the Odoo connector). One token per
+/// "inventory" (an external consumer); it grants access to aggregated position
+/// results of this site and (for the optional export-back) position creation.
+/// </summary>
+public class ExternalApiToken : Entity
+{
+    [Required, MaxLength(64)]
+    public string Token { get; set; } = "";
+
+    [Required, MaxLength(120)]
+    public string Name { get; set; } = "";
+
+    public string CreatedByUserId { get; set; } = "";
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset? RevokedAt { get; set; }
+    public DateTimeOffset? LastUsedAt { get; set; }
+}

@@ -24,6 +24,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<CvLike> Likes => Set<CvLike>();
     public DbSet<RecentAttribute> RecentAttributes => Set<RecentAttribute>();
     public DbSet<CvAttributeVersion> CvAttributeVersions => Set<CvAttributeVersion>();
+    public DbSet<CrmLink> CrmLinks => Set<CrmLink>();
+    public DbSet<ExternalApiToken> ExternalApiTokens => Set<ExternalApiToken>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -63,9 +65,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         b.Entity<Position>().HasIndex(p => new { p.UpdatedAt });
         b.Entity<Position>().HasIndex(p => new { p.Level });
         b.Entity<Cv>().HasIndex(c => c.Status);
+        b.Entity<CrmLink>().HasIndex(x => x.UserId).IsUnique(); // one CRM record set per user
+        b.Entity<ExternalApiToken>().HasIndex(x => x.Token).IsUnique(); // external API token lookup
         b.Entity<Comment>().HasIndex(c => new { c.PositionId, c.CreatedAt });
         b.Entity<CvLike>().HasIndex(l => l.CvId);
         b.Entity<AttributeValue>().HasIndex(v => v.UserId);
+
 
         // ---- CvAttributeVersion ----
         b.Entity<CvAttributeVersion>().HasIndex(x => new { x.PositionId, x.AttributeId }).IsUnique();

@@ -4,17 +4,36 @@
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.WebUtilities
 @using CvHub.Data
+@using CvHub.Shared
 
 @inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
 @inject IdentityRedirectManager RedirectManager
 
-<PageTitle>Confirm email</PageTitle>
+<PageTitle>Confirm email — CvHub</PageTitle>
 
-<h1>Confirm email</h1>
-<StatusMessage Message="@statusMessage" />
+<section class="mx-auto flex min-h-[70vh] w-full max-w-md flex-col justify-center py-8">
+    <div class="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        @if (_success)
+        {
+            <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-2xl">✓</div>
+            <h1 class="text-xl font-bold">@I18n.T("account.confirm.okTitle")</h1>
+            <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">@I18n.T("account.confirm.okText")</p>
+            <a href="/" class="mt-5 inline-block rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700">@I18n.T("account.confirm.goApp")</a>
+        }
+        else
+        {
+            <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-rose-100 dark:bg-rose-900/40 text-2xl">✕</div>
+            <h1 class="text-xl font-bold">@I18n.T("account.confirm.failTitle")</h1>
+            <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">@(_error ?? I18n.T("account.confirm.failText"))</p>
+            <a href="/Account/ResendEmailConfirmation" class="mt-5 inline-block rounded-lg border border-slate-300 dark:border-slate-600 px-5 py-2.5 text-sm font-semibold hover:bg-slate-100 dark:hover:bg-slate-700">@I18n.T("account.confirm.resend")</a>
+        }
+    </div>
+</section>
 
 @code {
-    private string? statusMessage;
+    private bool _success;
+    private string? _error;
 
     [CascadingParameter]
     private HttpContext HttpContext { get; set; } = default!;
@@ -29,7 +48,7 @@
     {
         if (UserId is null || Code is null)
         {
-            RedirectManager.RedirectTo("");
+            _error = I18n.T("account.confirm.invalidLink");
             return;
         }
 
@@ -37,13 +56,25 @@
         if (user is null)
         {
             HttpContext.Response.StatusCode = StatusCodes.Status404NotFound;
-            statusMessage = $"Error loading user with ID {UserId}";
+            _error = I18n.T("account.confirm.invalidLink");
+            return;
+        }
+
+        var code = Encoding.UTF8.GetString(WebEncoders.Base64UrlDecode(Code));
+        var result = await UserManager.ConfirmEmailAsync(user, code);
+        if (result.Succeeded)
+        {
+            _success = true;
+            // Confirmed users can proceed straight in (also covers the case where they
+            // were logged out during registration).
+            if (SignInManager.IsSignedIn(HttpContext.User) || await SignInManager.CanSignInAsync(user))
+            {
+                await SignInManager.SignInAsync(user, isPersistent: false);
+            }
         }
         else
         {
-            var code = Encoding.UTF8.GetString(WebEncoders.Base64UrlDecode(Code));
-            var result = await UserManager.ConfirmEmailAsync(user, code);
-            statusMessage = result.Succeeded ? "Thank you for confirming your email." : "Error confirming your email.";
+            _error = string.Join(", ", result.Errors.Select(e => e.Description));
         }
     }
 }

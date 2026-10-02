@@ -44,3 +44,8 @@ publish/
 
 # Logs
 *.log
+
+# Freebuff agent metadata (local only)
+.freebuff/
+__pycache__/
+*.pyc

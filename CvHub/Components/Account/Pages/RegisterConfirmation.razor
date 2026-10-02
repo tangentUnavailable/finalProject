@@ -19,13 +19,14 @@
 @if (emailConfirmationLink is not null)
 {
     <p>
-        This app does not currently have a real email sender registered, see <a href="https://aka.ms/aspaccountconf">these docs</a> for how to configure a real email sender.
-        Normally this would be emailed: <a href="@emailConfirmationLink">Click here to confirm your account</a>
+        Email delivery is not configured, so here is your confirmation link directly:
+        <a href="@emailConfirmationLink">Click here to confirm your account</a>
     </p>
 }
 else
 {
-    <p role="alert">Please check your email to confirm your account.</p>
+    <p role="alert">We've sent a confirmation link to <strong>@Email</strong>. Please check your inbox (and spam folder) and click the link to activate your account.</p>
+    <p class="text-sm text-slate-500">Didn't get it? <a href="/Account/ResendEmailConfirmation">Resend the confirmation email</a>.</p>
 }
 
 @code {

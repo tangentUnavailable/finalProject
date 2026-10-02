@@ -21,12 +21,17 @@ public static class CvDisplay
         };
     }
 
-    /// <summary>Escape a value for a single CSV cell (RFC 4180 quoting).</summary>
+    /// <summary>Escape a value for a single CSV cell (RFC 4180 quoting + Excel formula-injection guard).</summary>
     public static string CsvCell(string? value)
     {
         if (value is null) return "";
-        if (value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r'))
-            return "\"" + value.Replace("\"", "\"\"") + "\"";
-        return value;
+        // Cells starting with these can execute as spreadsheet formulas when the CSV is opened;
+        // leading '-' is only dangerous when not a plain number (negative numerics stay intact).
+        var dangerous = value[0] is '=' or '+' or '@' or '\t'
+            || (value[0] == '-' && !double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out _));
+        var guarded = value.Length > 0 && dangerous ? "'" + value : value;
+        if (guarded.Contains(',') || guarded.Contains('"') || guarded.Contains('\n') || guarded.Contains('\r'))
+            return "\"" + guarded.Replace("\"", "\"\"") + "\"";
+        return guarded;
     }
 }

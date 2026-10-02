@@ -11,6 +11,13 @@
 
 <PageTitle>Manage your passkeys</PageTitle>
 
+@* Colocated .razor.js is only auto-injected for components with an interactive
+   @rendermode. This page is static SSR, so the <passkey-submit> custom element is
+   never defined without this — the form then POSTs natively with no credential and
+   the server reports "The browser did not provide a passkey". Absolute path so it
+   does not resolve relative to the current route. *@
+<script src="/Components/Account/Shared/PasskeySubmit.razor.js"></script>
+
 <h3>Manage your passkeys</h3>
 
 <StatusMessage />
@@ -84,7 +91,7 @@ else
         user = await UserManager.GetUserAsync(HttpContext.User);
         if (user is null)
         {
-            RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);
+            await RedirectManager.RedirectToInvalidUserAsync(UserManager, HttpContext);
             return;
         }
         currentPasskeys = await UserManager.GetPasskeysAsync(user);
@@ -94,7 +101,7 @@ else
     {
         if (user is null)
         {
-            RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);
+            await RedirectManager.RedirectToInvalidUserAsync(UserManager, HttpContext);
             return;
         }
 
@@ -155,7 +162,7 @@ else
     {
         if (user is null)
         {
-            RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);
+            await RedirectManager.RedirectToInvalidUserAsync(UserManager, HttpContext);
             return;
         }
 

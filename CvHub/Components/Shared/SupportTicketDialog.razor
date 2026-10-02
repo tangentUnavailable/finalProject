@@ -1,0 +1,157 @@
+@rendermode InteractiveServer
+
+@using CvHub.Services
+@* Support ticket dialog (Power Automate integration).
+   Rendered twice from MainLayout: in the header (Help icon) and in the footer
+   ("Create support ticket" link). Each instance owns its own dialog state, so
+   no cross-component wiring is needed. *@
+
+@if (ShowHelpIcon)
+{
+    <button type="button" @onclick="Open" title="@I18n.T("support.help")" aria-label="@I18n.T("support.help")"
+            class="rounded-lg p-2 hover:bg-slate-100 dark:hover:bg-slate-800">
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z" />
+        </svg>
+    </button>
+}
+else
+{
+    <button type="button" @onclick="Open" class="underline hover:text-slate-700 dark:hover:text-slate-300">
+        @I18n.T("support.createlink")
+    </button>
+}
+
+@if (_visible)
+{
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div class="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-800 p-5 shadow-2xl">
+                <div class="mb-4 flex items-center justify-between">
+                    <h3 class="text-lg font-semibold">@I18n.T("support.title")</h3>
+                    @if (!_submitting)
+                    {
+                        <button type="button" @onclick="Close" class="text-slate-400 hover:text-slate-600">✕</button>
+                    }
+                </div>
+
+                @if (_error is not null)
+                {
+                    <div class="mb-3 rounded-lg bg-rose-50 dark:bg-rose-900/30 border border-rose-300 dark:border-rose-700 px-3 py-2 text-xs text-rose-700 dark:text-rose-400">@_error</div>
+                }
+
+                @if (!_done)
+                {
+                    <label class="mb-1 block text-sm font-medium">@I18n.T("support.summary")</label>
+                    <textarea @bind="_summary" rows="3"
+                              placeholder="@I18n.T("support.summaryPlaceholder")"
+                              class="mb-3 w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"></textarea>
+
+                    <label class="mb-1 block text-sm font-medium">@I18n.T("support.priority")</label>
+                    <select @bind="_priority"
+                            class="mb-4 w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                        <option value="High">@I18n.T("support.prio.high")</option>
+                        <option value="Average">@I18n.T("support.prio.average")</option>
+                        <option value="Low">@I18n.T("support.prio.low")</option>
+                    </select>
+
+                    <div class="flex justify-end gap-2">
+                        <button type="button" @onclick="Close" class="rounded-lg border border-slate-300 dark:border-slate-600 px-4 py-2 text-sm font-semibold hover:bg-slate-100 dark:hover:bg-slate-700">@I18n.T("common.close")</button>
+                        <button type="button" @onclick="Submit" disabled="@_submitting"
+                                class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50">
+                            @(_submitting ? I18n.T("support.submitting") : I18n.T("support.submit"))
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    <p class="mb-2 text-sm text-slate-600 dark:text-slate-300">@I18n.T("support.done")</p>
+                    @if (_fileName is not null)
+                    {
+                        <div class="mb-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 font-mono text-xs break-all">@_fileName</div>
+                    }
+                    <p class="mb-2 text-xs text-slate-400">@I18n.T("support.jsonnote")</p>
+                    @if (_jsonPreview is not null)
+                    {
+                        <pre class="mb-4 max-h-48 overflow-auto rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-[11px] leading-snug whitespace-pre-wrap">@_jsonPreview</pre>
+                    }
+                    <div class="flex justify-end">
+                        <button type="button" @onclick="Close" class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700">@I18n.T("common.close")</button>
+                    </div>
+                }
+            </div>
+    </div>
+}
+
+@code {
+    /// <summary>When true the instance renders the header help (?) icon instead of the footer link.</summary>
+    [Parameter] public bool ShowHelpIcon { get; set; }
+
+    [Inject] private SupportTicketService Tickets { get; set; } = default!;
+    [Inject] private NavigationManager Nav { get; set; } = default!;
+    [Inject] private AuthenticationStateProvider AuthState { get; set; } = default!;
+
+    private bool _visible;
+    private bool _submitting;
+    private bool _done;
+    private string _summary = "";
+    private string _priority = "Average";
+    private string? _error;
+    private string? _fileName;
+    private string? _jsonPreview;
+
+    private static readonly System.Text.RegularExpressions.Regex PositionUrl =
+        new(@"^https?://[^/]+/positions/(\d+)", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    public void Open()
+    {
+        _visible = true;
+        _done = false;
+        _submitting = false;
+        _error = null;
+        _fileName = null;
+        _jsonPreview = null;
+        _summary = "";
+        _priority = "Average";
+    }
+
+    private void Close() => _visible = false;
+
+    private async Task Submit()
+    {
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_summary))
+        {
+            _error = I18n.T("support.err.summary");
+            return;
+        }
+
+        _submitting = true;
+        try
+        {
+            var auth = await AuthState.GetAuthenticationStateAsync();
+
+            // "Position" is filled automatically when the ticket is raised from a position page.
+            int? positionId = null;
+            var m = PositionUrl.Match(Nav.Uri);
+            if (m.Success && int.TryParse(m.Groups[1].Value, out var pid)) positionId = pid;
+
+            var result = await Tickets.CreateAndUploadAsync(
+                new SupportTicketInput(_summary.Trim(), _priority), Nav.Uri, positionId, auth.User);
+
+            if (result.Success)
+            {
+                _fileName = result.FileName;
+                _jsonPreview = result.JsonPreview;
+                _done = true;
+            }
+            else
+            {
+                _error = result.Error;
+            }
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+}

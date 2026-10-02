@@ -1,0 +1,27 @@
+<section style="max-width: 800px; margin: 2rem auto; font-family: sans-serif;">
+    <h2>CvHub Connector</h2>
+    <p>
+        Import positions and their <b>aggregated results</b> from a CvHub instance
+        (per-inventory API token), browse them read-only, and — optionally —
+        create positions in Odoo and export them back to CvHub.
+    </p>
+    <h3>Import</h3>
+    <p>
+        Menu <b>CvHub → Import from CvHub</b>: paste the base URL of the CvHub site and
+        the API token generated on the position page (button “API token”), then click
+        <b>Import</b>. Positions are stored with their attributes (title, type) and the
+        aggregates computed by CvHub (avg/min/max for numeric attributes, most popular
+        values for texts, yes/no counts for booleans, date ranges for periods).
+    </p>
+    <h3>Viewer</h3>
+    <p>
+        <b>CvHub → Positions</b> shows the list of imported positions; open one for the
+        detailed view with per-attribute aggregates. “Refresh from CvHub” re-fetches
+        fresh aggregates for a position.
+    </p>
+    <h3>Export-back (optional feature)</h3>
+    <p>
+        <b>CvHub → Create &amp; Export Position</b>: create a position in Odoo and push
+        it to CvHub through the same token (the position appears in CvHub immediately).
+    </p>
+</section>

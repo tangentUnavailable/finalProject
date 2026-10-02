@@ -9,7 +9,9 @@ namespace CvHub.Services;
 public class IdentitySeeder(
     UserManager<ApplicationUser> userManager,
     RoleManager<IdentityRole> roleManager,
-    ApplicationDbContext db)
+    ApplicationDbContext db,
+    IConfiguration configuration,
+    ILogger<IdentitySeeder> logger)
 {
     public static class Roles
     {
@@ -26,18 +28,41 @@ public class IdentitySeeder(
                 await roleManager.CreateAsync(new IdentityRole(role));
         }
 
-        var adminEmail = "admin@cvhub.local";
-        if (await userManager.FindByEmailAsync(adminEmail) is null)
+        // The real admin account receives the Power Automate support-ticket e-mails
+        // (the ticket JSON's admin_emails lists every user in the Admin role).
+        // Address, display name and password all come from configuration (Seed:Admin*)
+        // instead of being hardcoded, so no personal address or known password is baked
+        // into the repository. When they are not configured we skip creation entirely
+        // rather than fall back to a guessable default.
+        var adminEmail = configuration["Seed:AdminEmail"]?.Trim();
+        var adminPassword = configuration["Seed:AdminPassword"];
+        var adminName = configuration["Seed:AdminDisplayName"]?.Trim();
+        if (string.IsNullOrWhiteSpace(adminEmail) || string.IsNullOrWhiteSpace(adminPassword))
+        {
+            logger.LogWarning(
+                "Seed:AdminEmail and Seed:AdminPassword are not configured — skipping admin account creation. " +
+                "Set them in appsettings.json or via Seed__AdminEmail / Seed__AdminPassword environment variables.");
+        }
+        else if (await userManager.FindByEmailAsync(adminEmail) is null)
         {
             var admin = new ApplicationUser
             {
                 UserName = adminEmail,
                 Email = adminEmail,
                 EmailConfirmed = true,
-                DisplayName = "Site Admin",
+                DisplayName = string.IsNullOrWhiteSpace(adminName) ? adminEmail : adminName,
             };
-            await userManager.CreateAsync(admin, "Admin123!");
-            await userManager.AddToRoleAsync(admin, Roles.Admin);
+            var created = await userManager.CreateAsync(admin, adminPassword);
+            if (created.Succeeded)
+            {
+                await userManager.AddToRoleAsync(admin, Roles.Admin);
+                logger.LogInformation("Seeded admin account {AdminEmail}.", adminEmail);
+            }
+            else
+            {
+                logger.LogError("Could not seed admin account: {Errors}",
+                    string.Join("; ", created.Errors.Select(e => e.Description)));
+            }
         }
 
         // Demo accounts for evaluation.

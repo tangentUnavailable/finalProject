@@ -88,7 +88,7 @@ else
         var user = await UserManager.GetUserAsync(HttpContext.User);
         if (user is null)
         {
-            RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);
+            await RedirectManager.RedirectToInvalidUserAsync(UserManager, HttpContext);
             return;
         }
 

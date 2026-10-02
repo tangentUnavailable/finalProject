@@ -5,10 +5,12 @@
 @using CvHub.Infrastructure
 @using CvHub.Features.Positions
 @using CvHub.Features.Cvs
+@using CvHub.Features.External
 @using Microsoft.EntityFrameworkCore
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
 @inject AuthenticationStateProvider AuthState
 @inject NavigationManager Nav
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
 
 <PageTitle>@_position?.Title — CvHub</PageTitle>
 
@@ -47,6 +49,7 @@ else if (_position is not null)
                 <button type="button" @onclick='() => OpenEditor(_position.Id)' class="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-sm font-medium hover:border-brand-500 hover:text-brand-600">✏️ @I18n.T("pos.edit")</button>
                 <button type="button" @onclick="DuplicateHere" disabled="@_duplicating" class="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-sm font-medium hover:border-brand-500 hover:text-brand-600 disabled:opacity-50">⧉ @I18n.T("pos.duplicate")</button>
                 <a href="/api/positions/@_position.Id/cvs/export" class="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-sm font-medium hover:border-brand-500 hover:text-brand-600">⬇ @I18n.T("csv.export")</a>
+                <button type="button" @onclick="ShowApiToken" class="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-sm font-medium hover:border-brand-500 hover:text-brand-600">🔑 @I18n.T("pos.apitoken")</button>
             }
             @if (_candidateCvId is int existingCv)
             {
@@ -165,6 +168,38 @@ else if (_position is not null)
     <PositionEditor PositionId="_editId" OnClosed="OnEditorClosed" />
 }
 
+@if (_apiTokenVisible)
+{
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-800 p-5 shadow-2xl">
+            <div class="mb-4 flex items-center justify-between">
+                <h3 class="text-lg font-semibold">@I18n.T("pos.apitoken.title")</h3>
+                <button type="button" @onclick="() => _apiTokenVisible = false" class="text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+            @if (_apiTokenError is not null)
+            {
+                <div class="mb-3 rounded-lg bg-rose-50 dark:bg-rose-900/30 border border-rose-300 dark:border-rose-700 px-3 py-2 text-xs text-rose-700 dark:text-rose-400">@_apiTokenError</div>
+            }
+            @if (_apiToken is null)
+            {
+                <p class="mb-4 text-sm text-slate-500 dark:text-slate-400">@I18n.T("pos.apitoken.intro")</p>
+                <div class="flex justify-end">
+                    <button type="button" @onclick="GenerateApiToken" class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700">@I18n.T("pos.apitoken.generate")</button>
+                </div>
+            }
+            else
+            {
+                <p class="mb-2 text-sm text-slate-500 dark:text-slate-400">@I18n.T("pos.apitoken.note")</p>
+                <div class="mb-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 font-mono text-xs break-all">@_apiToken</div>
+                <p class="mb-4 text-xs text-slate-400 font-mono break-all">@I18n.T("pos.apitoken.example")</p>
+                <div class="flex justify-end">
+                    <button type="button" @onclick="() => _apiTokenVisible = false" class="rounded-lg border border-slate-300 dark:border-slate-600 px-4 py-2 text-sm font-semibold hover:bg-slate-100 dark:hover:bg-slate-700">@I18n.T("common.close")</button>
+                </div>
+            }
+        </div>
+    </div>
+}
+
 @code {
     [Parameter] public int Id { get; set; }
 
@@ -182,6 +217,9 @@ else if (_position is not null)
     private bool _editorOpen;
     private int? _editId;
     private bool _duplicating;
+    private bool _apiTokenVisible;
+    private string? _apiToken;
+    private string? _apiTokenError;
 
     private async Task DuplicateHere()
     {
@@ -244,6 +282,31 @@ else if (_position is not null)
         }
 
         _loading = false;
+    }
+
+    private void ShowApiToken()
+    {
+        _apiToken = null;
+        _apiTokenError = null;
+        _apiTokenVisible = true;
+    }
+
+    private async Task GenerateApiToken()
+    {
+        _apiTokenError = null;
+        try
+        {
+            // In-process: the internal HttpClient carries no auth cookie in a Server circuit.
+            var auth = await AuthState.GetAuthenticationStateAsync();
+            var uid = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var entity = await ExternalApi.CreateTokenAsync(db, $"position-{Id}", uid);
+            _apiToken = entity.Token;
+        }
+        catch (Exception ex)
+        {
+            _apiTokenError = ex.Message;
+        }
     }
 
     private async Task CreateCv()

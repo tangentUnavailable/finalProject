@@ -6,11 +6,17 @@
 @using CvHub.Shared
 @using CvHub.Features.Profile
 @using CvHub.Features.Badges
+@using CvHub.Services
 @using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.WebUtilities
+@using System.Text
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
-@inject IHttpClientFactory HttpClientFactory
 @inject AuthenticationStateProvider AuthState
 @inject NavigationManager Nav
+@inject SalesforceService Salesforce
+@inject UserManager<ApplicationUser> UserManager
+@inject IEmailSender<ApplicationUser> EmailSender
 @implements IDisposable
 
 <PageTitle>My Profile — CvHub</PageTitle>
@@ -68,18 +74,58 @@ else
     @if (!_isCandidateView || _tab == "me")
     {
         <section class="mb-8">
-            <h2 class="mb-2 text-sm font-bold uppercase tracking-wide text-slate-400">@I18n.T("profile.account")</h2>
-            <dl class="max-w-md divide-y divide-slate-100 dark:divide-slate-700/60 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+            <div class="mb-2 flex items-center justify-between gap-3">
+                <h2 class="text-sm font-bold uppercase tracking-wide text-slate-400">@I18n.T("profile.account")</h2>
+                @* Entry point to /Account/Manage (email, password, 2FA, passkeys, delete). It lives
+                   here rather than in the header to keep the header uncluttered. *@
+                <a href="/Account/Manage" class="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-semibold text-brand-600 transition-colors hover:bg-slate-100 dark:text-brand-400 dark:hover:bg-slate-700">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.7 7.7 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.019-.398-1.111-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
+                    @I18n.T("account.manage.title")
+                </a>
+            </div>
+            <dl class="max-w-full w-full divide-y divide-slate-100 dark:divide-slate-700/60 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
                 <div class="flex items-center justify-between gap-3 px-4 py-2.5">
                     <div class="min-w-0">
                         <dt class="text-xs uppercase tracking-wide text-slate-400">@I18n.T("profile.username")</dt>
-                        <dd class="truncate text-sm font-medium">@_email</dd>
+                        <dd class="flex items-center gap-2">
+                            <span class="min-w-0 truncate text-sm font-medium">@_email</span>
+                            @if (!_isOwnProfile)
+                            {
+                                @if (_emailConfirmed)
+                                {
+                                    <span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 text-xs text-emerald-700 dark:text-emerald-400">
+                                        <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span> @I18n.T("profile.email.confirmed")
+                                    </span>
+                                }
+                            }
+                            else if (!_emailConfirmed)
+                            {
+                                <span class="inline-flex items-center gap-1 rounded-full bg-amber-50 dark:bg-amber-900/30 px-2 py-0.5 text-xs text-amber-700 dark:text-amber-400">
+                                    <span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span> @I18n.T("profile.email.unconfirmed")
+                                </span>
+                                <button type="button" disabled="@_emailSending"
+                                        title="@I18n.T("profile.email.resend.title")"
+                                        class="shrink-0 rounded-lg px-1 text-xs font-medium text-amber-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60 dark:text-amber-400"
+                                        @onclick="ResendConfirmationAsync">
+                                    @(_emailSending ? I18n.T("profile.email.resend.working") : I18n.T("profile.email.resend"))
+                                </button>
+                            }
+                            else
+                            {
+                                <span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 text-xs text-emerald-700 dark:text-emerald-400" title="@I18n.T("profile.email.confirmed")">
+                                    <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                                </span>
+                            }
+                        </dd>
+                        @if (_emailSendMsg is not null)
+                        {
+                            <p class="mt-1 text-xs @(_emailSendOk ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400")" role="status">@_emailSendMsg</p>
+                        }
                     </div>
-                </div>
-                <div class="flex items-center justify-between gap-3 px-4 py-2.5">
+                </div>                <div class="flex items-center justify-between gap-3 px-4 py-2.5">
                     @if (_phoneEdit)
                     {
-                        <div class="min-w-0 flex-1">
+                            <div class="min-w-0 flex-1">
                             <dt class="text-xs uppercase tracking-wide text-slate-400">@I18n.T("profile.phone")</dt>
                             <dd class="mt-1 flex items-center gap-2">
                                 <input type="tel" aria-label="@I18n.T("profile.phone")" @bind="_phone" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-sm" />
@@ -103,12 +149,30 @@ else
                         </button>
                     }
                 </div>
+                <div class="flex items-center justify-between gap-3 px-4 py-2.5">
+                    <div class="min-w-0">
+                        <dt class="text-xs uppercase tracking-wide text-slate-400">@I18n.T("crm.title")</dt>
+                        <dd class="truncate text-sm font-medium">
+                            @if (_crmSyncedAt is not null)
+                            {
+                                <span class="text-emerald-600 dark:text-emerald-400">@I18n.T("crm.synced") @(_crmSyncedAt?.ToString("MMM d, yyyy HH:mm"))</span>
+                            }
+                            else
+                            {
+                                <span class="text-slate-400">@I18n.T("crm.never")</span>
+                            }
+                        </dd>
+                    </div>
+                    <button type="button" @onclick="OpenCrmDialogAsync" class="shrink-0 rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-xs font-semibold hover:border-brand-500 hover:text-brand-600 dark:hover:text-brand-400">
+                        @I18n.T("crm.action")
+                    </button>
+                </div>
             </dl>
         </section>
 
         <section>
             <h2 class="mb-2 text-sm font-bold uppercase tracking-wide text-slate-400">@I18n.T("profile.me")</h2>
-            <dl class="max-w-md divide-y divide-slate-100 dark:divide-slate-700/60 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+            <dl class="max-w-full w-full divide-y divide-slate-100 dark:divide-slate-700/60 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
                 @foreach (var f in _me_fields.Where(f => f.AttributeId != _aboutId))
                 {
                     var field = f;
@@ -339,17 +403,82 @@ else
             </div>
         </div>
     }
+
+    @if (_crmOpen)
+    {
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div class="w-full max-w-md rounded-2xl bg-white dark:bg-slate-800 p-5 shadow-2xl">
+                <div class="mb-4 flex items-center justify-between">
+                    <h3 class="text-lg font-semibold">@I18n.T("crm.dialogtitle")</h3>
+                    <button type="button" @onclick="() => _crmOpen = false" class="text-slate-400 hover:text-slate-600">✕</button>
+                </div>
+
+                @if (_crmError is not null)
+                {
+                    <div class="mb-3 rounded-lg bg-rose-50 dark:bg-rose-900/30 border border-rose-300 dark:border-rose-700 px-3 py-2 text-xs text-rose-700 dark:text-rose-400">@_crmError</div>
+                }
+                @if (_crmSuccess is not null)
+                {
+                    <div class="mb-3 rounded-lg bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-300 dark:border-emerald-700 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400">
+                        @(_crmSuccess)
+                    </div>
+                }
+
+                @if (!_crmConnected && !Salesforce.CentralReady)
+                {
+                    <p class="mb-4 text-sm text-slate-500 dark:text-slate-400">@I18n.T("crm.connectnote")</p>
+                    <div class="flex justify-end">
+                        <a href="@_crmConnectUrl" class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700">@I18n.T("crm.connect")</a>
+                    </div>
+                }
+                else
+                {
+                    <div class="mb-4 rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-700/60 text-sm">
+                        <div class="flex justify-between gap-3 px-3 py-2"><span class="text-slate-400">@I18n.T("profile.name")</span><span class="font-medium truncate">@(_firstName) @_lastName</span></div>
+                        <div class="flex justify-between gap-3 px-3 py-2"><span class="text-slate-400">@I18n.T("account.email.label")</span><span class="font-medium truncate">@_email</span></div>
+                        <div class="flex justify-between gap-3 px-3 py-2"><span class="text-slate-400">@I18n.T("profile.phone")</span><span class="font-medium truncate">@(_phone ?? "—")</span></div>
+                    </div>
+
+                    <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400">@I18n.T("crm.interests")</label>
+                    <input type="text" @bind="_crmInterests" placeholder="e.g. .NET, React, DevOps" class="mb-3 w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-sm" />
+
+                    <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400">@I18n.T("crm.notes")</label>
+                    <textarea @bind="_crmNotes" rows="3" class="mb-3 w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-sm"></textarea>
+
+                    <label class="mb-4 flex items-center gap-2 text-sm">
+                        <input type="checkbox" @bind="_crmNewsletter" class="h-4 w-4 rounded accent-brand-600" />
+                        @I18n.T("crm.newsletter")
+                    </label>
+
+                    <div class="flex justify-end gap-2">
+                        <button type="button" @onclick="() => _crmOpen = false" class="rounded-lg border border-slate-300 dark:border-slate-600 px-4 py-2 text-sm font-semibold hover:bg-slate-100 dark:hover:bg-slate-700">@I18n.T("common.cancel")</button>
+                        <button type="button" @onclick="SyncCrm" disabled="@_crmBusy" class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50">
+                            @(_crmBusy ? I18n.T("crm.syncing") : I18n.T("crm.sync"))
+                        </button>
+                    </div>
+                }
+            </div>
+        </div>
+    }
 }
 
 @code {
     [Parameter] public string UserId { get; set; } = "";
+
+    [SupplyParameterFromQuery(Name = "crm")]
+    public string? CrmStatus { get; set; }
 
     private bool _loading = true;
     private bool _saving;
     private string _tab = "me";
     private string _userId = "";
     private bool _isCandidateView = true;
+    private bool _isOwnProfile;
     private string _email = "";
+    private bool _emailConfirmed;
+    private bool _emailSending;
+    private bool _emailSendOk;
+    private string? _emailSendMsg;
     private string? _photoUrl;
     private string _firstName = "";
     private string _lastName = "";
@@ -373,6 +502,17 @@ else
     private CvRow? _pendingCvDelete;
     private ProjectDto? _pendingProjectDelete;
 
+    // Salesforce CRM sync state.
+    private bool _crmOpen;
+    private bool _crmConnected;
+    private bool _crmBusy;
+    private DateTimeOffset? _crmSyncedAt;
+    private string? _crmError;
+    private string? _crmSuccess;
+    private bool _crmNewsletter;
+    private string? _crmInterests;
+    private string? _crmNotes;
+
     protected override async Task OnInitializedAsync()
     {
         var auth = await AuthState.GetAuthenticationStateAsync();
@@ -393,6 +533,23 @@ else
             return;
         }
         await LoadAsync();
+
+        // CRM link state of the profile OWNER (self, or the user an admin is viewing).
+        var isOwnProfile = string.IsNullOrEmpty(UserId) || _userId == auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        _isOwnProfile = isOwnProfile;
+        if (!string.IsNullOrEmpty(_userId))
+        {
+            await using var db2 = await DbFactory.CreateDbContextAsync();
+            var crm = await db2.CrmLinks.AsNoTracking().FirstOrDefaultAsync(l => l.UserId == _userId);
+            // Central-org mode: syncs run with the app's own Salesforce credentials, so every
+            // user is "connected" from the start — the per-user OAuth screen must never appear.
+            _crmConnected = Salesforce.CentralReady || (crm is not null && !string.IsNullOrEmpty(crm.RefreshToken));
+            _crmSyncedAt = crm?.SyncedAt;
+            if (crm is not null) _crmNewsletter = crm.NewsletterOptIn;
+        }
+        if (CrmStatus == "connected") _crmSuccess = I18n.T("crm.connected");
+        else if (CrmStatus == "error") _crmError = I18n.T("crm.connectfailed");
+
         if (_isCandidateView)
         {
             _timer = new(6000) { AutoReset = true };
@@ -412,8 +569,9 @@ else
         _aboutId = builtins.FirstOrDefault(a => a.Name == BuiltInAttributeNames.About)?.Id ?? 0;
 
         // Show the profile owner's email (differs from the viewer when an admin edits someone else).
-        var ownerEmail = await db.Users.Where(u => u.Id == _userId).Select(u => u.Email).FirstOrDefaultAsync();
-        if (!string.IsNullOrEmpty(ownerEmail)) _email = ownerEmail;
+        var ownerData = await db.Users.Where(u => u.Id == _userId).Select(u => new { u.Email, u.EmailConfirmed }).FirstOrDefaultAsync();
+        if (!string.IsNullOrEmpty(ownerData?.Email)) _email = ownerData.Email;
+        _emailConfirmed = ownerData?.EmailConfirmed ?? false;
 
         var owner = await db.Users.Where(u => u.Id == _userId).Select(u => new { u.PhoneNumber }).FirstOrDefaultAsync();
         _phone ??= owner?.PhoneNumber;
@@ -469,6 +627,65 @@ else
             c.Hidden = !AccessRules.HasAccess(pos, values, isAdmin || isRecruiter);
         }
         _loading = false;
+    }
+
+    // ---------- Salesforce CRM sync ----------
+    // Target of the sync: the profile owner (self, or the user an admin is viewing).
+    private string _crmConnectUrl => string.IsNullOrEmpty(UserId)
+        ? "/api/crm/salesforce/connect"
+        : $"/api/crm/salesforce/connect?userId={Uri.EscapeDataString(UserId)}";
+
+    private async Task OpenCrmDialogAsync()
+    {
+        _crmOpen = true;
+        _crmError = null;
+        _crmSuccess = CrmStatus == "connected" ? _crmSuccess : null;
+        // Refresh the last-sync stamp straight from the database. (The "interactive"
+        // HttpClient carries no auth cookie inside a Blazor Server circuit, so calling
+        // /api/crm/status from here would always 403 — we use app services directly.)
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var crm = await db.CrmLinks.AsNoTracking().FirstOrDefaultAsync(l => l.UserId == _userId);
+            _crmSyncedAt = crm?.SyncedAt;
+            if (crm is not null) _crmNewsletter = crm.NewsletterOptIn;
+        }
+        catch { /* dialog still opens; sync reports any problem */ }
+        StateHasChanged();
+    }
+
+    private async Task SyncCrm()
+    {
+        _crmBusy = true;
+        _crmError = null;
+        _crmSuccess = null;
+        try
+        {
+            // Call the service in-process: the page runs on the server (InteractiveServer)
+            // and the sync endpoint's HttpContext auth can't be satisfied over the
+            // cookie-less internal HttpClient. SyncAsync targets the central org (client
+            // credentials) or the user's own linked org automatically.
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var result = await Salesforce.SyncAsync(db, _userId, new CrmSyncInput(_crmNewsletter, _crmInterests, _crmNotes));
+            if (result.Success)
+            {
+                _crmSuccess = string.Format(I18n.T("crm.done"), result.AccountId, result.ContactId);
+                _crmSyncedAt = DateTimeOffset.UtcNow;
+            }
+            else
+            {
+                _crmError = result.Error ?? I18n.T("crm.connectfailed");
+            }
+        }
+        catch (Exception ex)
+        {
+            _crmError = ex.Message;
+        }
+        finally
+        {
+            _crmBusy = false;
+            StateHasChanged();
+        }
     }
 
     // ---------- autosave ----------
@@ -621,6 +838,49 @@ else
     private void NewProject() => _projectEdit = new ProjectDto(0, "", null, null, "", []);
 
     private void CancelPhone() { _phoneEdit = false; _phone = _phoneStored; _phoneMsg = null; }
+
+    /// <summary>
+    /// One-click resend of the email confirmation link. Used to send the user to the
+    /// Manage Email page, which just shows the same unconfirmed state plus a second
+    /// button — now the profile page sends the mail itself and reports the outcome.
+    /// </summary>
+    private async Task ResendConfirmationAsync()
+    {
+        if (_emailSending || _emailConfirmed) return;
+        _emailSending = true;
+        _emailSendMsg = null;
+        try
+        {
+            var user = await UserManager.GetUserAsync((await AuthState.GetAuthenticationStateAsync()).User);
+            var address = user is null ? _email : await UserManager.GetEmailAsync(user);
+            if (user is null || string.IsNullOrWhiteSpace(address))
+            {
+                _emailSendOk = false;
+                _emailSendMsg = I18n.T("profile.email.resend.failed");
+                return;
+            }
+
+            var code = WebEncoders.Base64UrlEncode(
+                Encoding.UTF8.GetBytes(await UserManager.GenerateEmailConfirmationTokenAsync(user)));
+            var callbackUrl = Nav.GetUriWithQueryParameters(
+                Nav.ToAbsoluteUri("/Account/ConfirmEmail").AbsoluteUri,
+                new Dictionary<string, object?> { ["userId"] = user.Id, ["code"] = code });
+
+            await EmailSender.SendConfirmationLinkAsync(user, address, callbackUrl);
+            _emailSendOk = true;
+            _emailSendMsg = I18n.T("profile.email.resend.sent");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"resend confirmation failed: {ex.Message}");
+            _emailSendOk = false;
+            _emailSendMsg = I18n.T("profile.email.resend.failed");
+        }
+        finally
+        {
+            _emailSending = false;
+        }
+    }
 
     private void EndEdit(int attrId) => _editingFields.Remove(attrId);
 

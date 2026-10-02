@@ -1,10 +1,13 @@
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Identity;
 using CvHub.Data;
+using CvHub.Shared;
 
 namespace CvHub.Components.Account;
 
-internal sealed class IdentityRedirectManager(NavigationManager navigationManager)
+internal sealed class IdentityRedirectManager(
+    NavigationManager navigationManager,
+    SignInManager<ApplicationUser> signInManager)
 {
     public const string StatusCookieName = "Identity.StatusMessage";
 
@@ -49,6 +52,18 @@ internal sealed class IdentityRedirectManager(NavigationManager navigationManage
     public void RedirectToCurrentPageWithStatus(string message, HttpContext context)
         => RedirectToWithStatus(CurrentPath, message, context);
 
-    public void RedirectToInvalidUser(UserManager<ApplicationUser> userManager, HttpContext context)
-        => RedirectToWithStatus("Account/InvalidUser", $"Error: Unable to load user with ID '{userManager.GetUserId(context.User)}'.", context);
+    /// <summary>
+    /// The auth cookie outlives its user row (account deleted, database reset, user record
+    /// removed by an admin). [Authorize] only validates the cookie, so these pages load and
+    /// then find no user. Sign the stale session out and send the visitor back to the sign-in
+    /// page with an explanation instead of dead-ending on an "Invalid user" error page.
+    /// </summary>
+    public async Task RedirectToInvalidUserAsync(UserManager<ApplicationUser> userManager, HttpContext context)
+    {
+        await signInManager.SignOutAsync();
+        RedirectToWithStatus(
+            "Account/Login",
+            I18n.T("account.invalidUser"),
+            context);
+    }
 }

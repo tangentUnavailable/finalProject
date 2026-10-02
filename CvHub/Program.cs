@@ -1,11 +1,14 @@
 using System.Security.Claims;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Components;
 using CvHub.Components;
 using CvHub.Components.Account;
 using CvHub.Data;
 using CvHub.Features.Admin;
 using CvHub.Features.Attributes;
+using CvHub.Features.Crm;
 using CvHub.Features.Cvs;
+using CvHub.Features.External;
 using CvHub.Features.Discussions;
 using CvHub.Features.Positions;
 using CvHub.Features.Profile;
@@ -18,6 +21,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -58,6 +62,7 @@ builder.Services.AddRazorComponents()
     .AddAuthenticationStateSerialization();
 
 builder.Services.AddCascadingAuthenticationState();
+builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
 builder.Services.AddScoped<IdentityRedirectManager>();
 builder.Services.AddScoped<AuthenticationStateProvider, IdentityRevalidatingAuthenticationStateProvider>();
 
@@ -111,7 +116,13 @@ builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 // ---------- Identity ----------
 builder.Services.AddIdentityCore<ApplicationUser>(options =>
     {
-        options.SignIn.RequireConfirmedAccount = builder.Configuration.GetValue<bool>("Identity:RequireConfirmedEmail", false);
+        // Published app: email confirmation is required whenever SMTP is configured
+        // (otherwise new users could never activate). Override with Identity:RequireConfirmedEmail.
+        var smtpConfigured = !string.IsNullOrWhiteSpace(builder.Configuration["Smtp:Host"])
+                             && !string.IsNullOrWhiteSpace(builder.Configuration["Smtp:Pass"]);
+        // Email confirmation is optional — users can log in and use CvHub without it.
+        // When not confirmed, they see nudges (header icon + profile page) encouraging them to verify.
+        options.SignIn.RequireConfirmedAccount = false;
         options.Stores.SchemaVersion = IdentitySchemaVersions.Version3;
         options.Lockout.AllowedForNewUsers = true;
     })
@@ -119,9 +130,7 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddSignInManager()
     .AddDefaultTokenProviders();
-
 builder.Services.AddScoped<IUserClaimsPrincipalFactory<ApplicationUser>, AppClaimsPrincipalFactory>();
-
 builder.Services.AddSingleton<IEmailSender<ApplicationUser>, EmailSender>();
 
 // ---------- Markdown ----------
@@ -135,6 +144,23 @@ builder.Services.AddScoped<IdentitySeeder>();
 builder.Services.AddScoped<DbSeeder>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddHttpClient();
+builder.Services.Configure<SalesforceOptions>(builder.Configuration.GetSection(SalesforceOptions.SectionName));
+builder.Services.AddScoped<SalesforceService>();
+builder.Services.AddHttpClient("salesforce", c => c.Timeout = TimeSpan.FromSeconds(30));
+
+// Support tickets -> Dropbox -> Power Automate (docs/power-automate-flow.md).
+builder.Services.Configure<DropboxOptions>(builder.Configuration.GetSection(DropboxOptions.SectionName));
+builder.Services.AddScoped<SupportTicketService>();
+builder.Services.AddHttpClient("dropbox", c => c.Timeout = TimeSpan.FromSeconds(30));
+
+// Rate limiting: protects the OAuth handshake and outbound CRM calls from abuse (prod hardening).
+builder.Services.AddRateLimiter(o =>
+{
+    o.RejectionStatusCode = 429;
+    o.AddPolicy("crm", ctx => RateLimitPartition.GetFixedWindowLimiter(
+        ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? ctx.Connection.RemoteIpAddress?.ToString() ?? "anon",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1) }));
+});
 // HttpClient with BaseAddress for interactive components (DiscussionPanel, editors, pickers).
 // Works in Server circuits and would work in WASM (same-origin relative calls).
 // Note: in Server circuits this client carries no auth cookie (IHttpContextAccessor is
@@ -168,6 +194,21 @@ using (var scope = app.Services.CreateScope())
 }
 
 // Configure the HTTP request pipeline.
+
+// Caddy terminates TLS and proxies to this app over plain HTTP. Without forwarded-header
+// handling the app believes every request arrived over http, so it builds http:// URLs —
+// redirects, form posts, confirmation emails, OAuth callbacks — silently downgrading users
+// off HTTPS. That also breaks WebAuthn, which requires a secure context, so the passkey
+// flow would break as soon as it navigated. Must be first in the pipeline.
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+    // The proxy is local (Caddy on the same host); otherwise the default KnownNetworks /
+    // KnownProxies allow-list would discard its headers.
+    KnownNetworks = { new Microsoft.AspNetCore.HttpOverrides.IPNetwork(System.Net.IPAddress.Loopback, 0) },
+    KnownProxies = { System.Net.IPAddress.Loopback },
+});
+
 if (app.Environment.IsDevelopment())
 {
     app.UseWebAssemblyDebugging();
@@ -190,6 +231,7 @@ app.Use((ctx, next) =>
 });
 
 app.UseAntiforgery();
+app.UseRateLimiter();
 
 app.MapStaticAssets();
 
@@ -200,6 +242,8 @@ PositionsApi.MapPositionsApi(app);
 CvsApi.MapCvsApi(app);
 CommentsApi.MapCommentsApi(app);
 SearchEndpoints.MapSearchEndpoints(app);
+CrmEndpoints.MapCrmEndpoints(app);
+ExternalApi.MapExternalApi(app);
 AdminApi.MapAdminApi(app);
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode()

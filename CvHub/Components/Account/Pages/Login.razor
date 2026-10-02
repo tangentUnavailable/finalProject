@@ -14,6 +14,13 @@
 @using CvHub.Shared
 <PageTitle>@I18n.T("account.login.title") — CvHub</PageTitle>
 
+@* Colocated .razor.js is only auto-injected for components with an interactive
+   @rendermode. This page is static SSR, so the <passkey-submit> custom element is
+   never defined without this — the form then POSTs natively with no credential and
+   the server reports "The browser did not provide a passkey". Absolute path so it
+   does not resolve relative to the current route. *@
+<script src="/Components/Account/Shared/PasskeySubmit.razor.js"></script>
+
 <section class="mx-auto flex min-h-[70vh] w-full max-w-md flex-col justify-center py-8">
     <div class="mb-8 text-center">
         <span class="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-600 text-xl font-bold text-white shadow-lg shadow-brand-600/25">CV</span>
@@ -38,7 +45,7 @@
                 {
                     <div id="email-error" class="mt-1 block text-xs text-rose-500" role="alert">@emailError</div>
                 }
-                <ValidationMessage For="() => Input.Email" class="mt-1 block text-xs text-rose-500" />
+                <div data-validation-message><ValidationMessage For="() => Input.Email" class="mt-1 block text-xs text-rose-500" /></div>
             </div>
 
             <div>
@@ -49,7 +56,7 @@
                 {
                     <div id="password-error" role="alert" class="mt-1 block text-xs text-rose-500">@passwordError</div>
                 }
-                <ValidationMessage For="() => Input.Password" class="mt-1 block text-xs text-rose-500" />
+                <div data-validation-message><ValidationMessage For="() => Input.Password" class="mt-1 block text-xs text-rose-500" /></div>
             </div>
 
             <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
@@ -122,11 +129,42 @@
 
     public async Task LoginUser()
     {
-        // This doesn't count as a failed login if the form is invalid.
-        if (!editContext.Validate()) return;
-
         // Clear previous submission feedback before re-validating.
         errorMessage = emailError = passwordError = null;
+
+        // Passkey sign-in runs FIRST and bypasses the email/password validation below:
+        // the credential authenticates the user on its own, and both fields are empty
+        // in that flow, so validating them first reported a misleading
+        // "email and password is required" and never reached the credential.
+        if (!string.IsNullOrEmpty(Input.Passkey?.CredentialJson))
+        {
+            var passkeyResult = await SignInManager.PasskeySignInAsync(Input.Passkey.CredentialJson);
+            if (passkeyResult.Succeeded)
+            {
+                RedirectManager.RedirectTo(ReturnUrl);
+            }
+            else if (passkeyResult.RequiresTwoFactor)
+            {
+                RedirectManager.RedirectTo("Account/LoginWith2fa", new() { ["returnUrl"] = ReturnUrl });
+            }
+            else
+            {
+                Logger.LogWarning("Passkey sign-in failed for {Email}.", Input.Email);
+                errorMessage = I18n.T("account.login.error.passkey");
+            }
+            return;
+        }
+
+        // The WebAuthn call itself failed (cancelled, no authenticator, unsupported
+        // browser). Surface what the browser reported rather than the field errors.
+        if (!string.IsNullOrEmpty(Input.Passkey?.Error))
+        {
+            errorMessage = Input.Passkey.Error;
+            return;
+        }
+
+        // This doesn't count as a failed login if the form is invalid.
+        if (!editContext.Validate()) return;
 
         // Blocked users must not be able to sign in.
         var candidateUser = await UserManager.FindByEmailAsync(Input.Email);
@@ -181,6 +219,10 @@
         [Required]
         [DataType(DataType.Password)]
         public string Password { get; set; } = "";
+
+        // Bound from the <passkey-submit> custom element (Input.Passkey.CredentialJson /
+        // Input.Passkey.Error). Not [Required] — it is absent on a normal password login.
+        public PasskeyInputModel Passkey { get; set; } = new();
 
         [Display(Name = "Remember me")]
         public bool RememberMe { get; set; }
