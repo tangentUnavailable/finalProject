@@ -1,0 +1,58 @@
+# Build outputs
+bin/
+obj/
+CvHub/bin/
+CvHub/obj/
+CvHub.Client/bin/
+CvHub.Client/obj/
+CvHub.Shared/bin/
+CvHub.Shared/obj/
+
+# NuGet
+packages/
+*.nupkg
+
+# Node
+node_modules/
+
+# IDE/Editor
+.vs/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+
+# Cookies / test artifacts
+cookies.txt
+
+# Compiled CSS
+CvHub/wwwroot/app.css
+
+# Publish output (build artifacts)
+publish/
+**/publish/
+
+# Server runtime config (may contain connection strings / secrets).
+# Local dev copies stay on disk; never committed.
+/CvHub/appsettings.json
+/CvHub/appsettings.*.json
+
+# Logs
+*.log
+
+# Freebuff agent metadata (local only)
+.freebuff/
+__pycache__/
+*.pyc
+
+# Local secrets (never commit) - e.g. the Google OAuth client for the Power Automate Gmail connection
+.power-automate-*.json
+*.clientsecret
+
+# Documents (never commit)
+docs/

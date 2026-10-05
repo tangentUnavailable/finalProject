@@ -1,0 +1,223 @@
+@page "/"
+@using CvHub.Shared
+@using CvHub.Infrastructure
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject IHttpContextAccessor Ctx
+
+<PageTitle>CvHub — Home</PageTitle>
+
+<div class="mb-8">
+    <h1 class="text-2xl font-bold">@I18n.T("home.title")</h1>
+    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">@I18n.T("home.subtitle")</p>
+</div>
+
+<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+    <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
+        <div class="text-2xl font-bold text-brand-600 dark:text-brand-400">@_stats.Cvs24h</div>
+        <div class="text-xs text-slate-500">@I18n.T("stats.cvs24h")</div>
+    </div>
+    <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
+        <div class="text-2xl font-bold text-brand-600 dark:text-brand-400">@_stats.Positions</div>
+        <div class="text-xs text-slate-500">@I18n.T("stats.positions")</div>
+    </div>
+    <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
+        <div class="text-2xl font-bold text-brand-600 dark:text-brand-400">@_stats.Candidates</div>
+        <div class="text-xs text-slate-500">@I18n.T("stats.candidates")</div>
+    </div>
+    <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
+        <div class="text-2xl font-bold text-brand-600 dark:text-brand-400">@_stats.Recruiters</div>
+        <div class="text-xs text-slate-500">@I18n.T("stats.recruiters")</div>
+    </div>
+    <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 col-span-2 sm:col-span-1">
+        <div class="text-2xl font-bold text-brand-600 dark:text-brand-400">@_stats.SubmittedCvs</div>
+        <div class="text-xs text-slate-500">@I18n.T("stats.cvs")</div>
+    </div>
+</div>
+
+<div class="mt-8 grid gap-8 lg:grid-cols-3">
+    <section class="lg:col-span-2">
+        <h2 class="mb-3 text-lg font-semibold">@I18n.T("home.latest")</h2>
+        <div class="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-slate-200 dark:border-slate-700 text-left text-xs uppercase tracking-wide text-slate-500">
+                        <th class="px-4 py-2">@I18n.T("table.title")</th>
+                        <th class="px-4 py-2">@I18n.T("table.company")</th>
+                        <th class="px-4 py-2">@I18n.T("table.level")</th>
+                        <th class="px-4 py-2">@I18n.T("table.updated")</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var p in _latest)
+                    {
+                        <tr class="border-b border-slate-100 dark:border-slate-700/50 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-700/30">
+                            <td class="px-4 py-2"><a class="font-medium text-brand-600 dark:text-brand-400 hover:underline" href="positions/@p.Id">@p.Title</a></td>
+                            <td class="px-4 py-2">@p.Company</td>
+                            <td class="px-4 py-2">@p.Level</td>
+                            <td class="px-4 py-2 text-slate-500">@p.UpdatedAt.ToString("MMM d")</td>
+                        </tr>
+                    }
+                    @if (!_latest.Any())
+                    {
+                        <tr><td colspan="4" class="px-4 py-6 text-center text-slate-400">No positions yet.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <h2 class="mb-3 mt-8 text-lg font-semibold">@I18n.T("home.popular")</h2>
+        <div class="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-slate-200 dark:border-slate-700 text-left text-xs uppercase tracking-wide text-slate-500">
+                        <th class="px-4 py-2">#</th>
+                        <th class="px-4 py-2">@I18n.T("table.title")</th>
+                        <th class="px-4 py-2">@I18n.T("table.cvs")</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @{
+                        var rank = 1;
+                    }
+                    @foreach (var p in _popular)
+                    {
+                        <tr class="border-b border-slate-100 dark:border-slate-700/50 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-700/30">
+                            <td class="px-4 py-2 text-slate-400">@(rank++)</td>
+                            <td class="px-4 py-2"><a class="font-medium text-brand-600 dark:text-brand-400 hover:underline" href="positions/@p.Id">@p.Title</a></td>
+                            <td class="px-4 py-2">@p.CvCount</td>
+                        </tr>
+                    }
+                    @if (!_popular.Any())
+                    {
+                        <tr><td colspan="3" class="px-4 py-6 text-center text-slate-400">No submitted CVs yet.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <aside>
+        <h2 class="mb-3 text-lg font-semibold">@I18n.T("home.cloud")</h2>
+        <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
+            <div class="flex flex-wrap gap-1.5">
+                @foreach (var t in _tags)
+                {
+                    var href = Ctx.HttpContext?.User.IsInRole("Admin") == true || Ctx.HttpContext?.User.IsInRole("Recruiter") == true
+                        ? $"search?q={Uri.EscapeDataString(t.Name)}&scope=cvs"
+                        : $"search?q={Uri.EscapeDataString(t.Name)}&scope=positions";
+                    <a href="@href"
+                       class="inline-flex items-center rounded-full bg-brand-50 dark:bg-brand-900/30 px-2.5 py-1 text-xs font-medium text-brand-700 dark:text-brand-300 whitespace-nowrap hover:bg-brand-100 dark:hover:bg-brand-900/50">
+                        @t.Name
+                    </a>
+                }
+            </div>
+            @if (!_tags.Any())
+            {
+                <div class="text-slate-400 text-sm">No tags yet.</div>
+            }
+        </div>
+    </aside>
+</div>
+
+@code {
+    private StatsDto _stats = new();
+    private List<PositionRow> _latest = [];
+    private List<PopularRow> _popular = [];
+    private List<TagCount> _tags = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var now = DateTimeOffset.UtcNow;
+
+        // Consolidate the two CV counts into one aggregate query (COUNT(CASE WHEN ...))
+        // and the two role counts into one JOIN+GROUP BY — replacing 5 blocking queries.
+        // GroupBy over a constant produces exactly one row, but EF cannot prove that and warns
+        // about FirstOrDefault() without an ordering, so order by that same constant to make
+        // the single-row assumption explicit.
+        var cvAgg = await db.Cvs
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                Cvs24h = g.Count(c => c.CreatedAt >= now.AddDays(-1)),
+                SubmittedCvs = g.Count(c => c.Status == CvStatus.Published)
+            })
+            .OrderBy(_ => 1)
+            .FirstOrDefaultAsync();
+
+        _stats = new StatsDto
+        {
+            Cvs24h = cvAgg?.Cvs24h ?? 0,
+            Positions = await db.Positions.CountAsync(),
+            Candidates = 0,
+            Recruiters = 0,
+            SubmittedCvs = cvAgg?.SubmittedCvs ?? 0,
+        };
+
+        var roleCounts = await db.UserRoles
+            .Join(db.Roles, ur => ur.RoleId, r => r.Id, (ur, r) => r.Name!)
+            .Where(name => name == "Candidate" || name == "Recruiter")
+            .GroupBy(name => name)
+            .ToDictionaryAsync(g => g.Key, g => g.Count());
+        _stats.Candidates = roleCounts.GetValueOrDefault("Candidate");
+        _stats.Recruiters = roleCounts.GetValueOrDefault("Recruiter");
+
+        _latest = await db.Positions
+            .OrderByDescending(p => p.UpdatedAt)
+            .Take(8)
+            .Select(p => new PositionRow { Id = p.Id, Title = p.Title, Company = p.Company, Level = p.Level, UpdatedAt = p.UpdatedAt })
+            .ToListAsync();
+
+        _popular = await db.Positions
+            .Where(p => p.Cvs.Any(c => c.Status == CvStatus.Published))
+            .Select(p => new PopularRow
+            {
+                Id = p.Id,
+                Title = p.Title,
+                CvCount = p.Cvs.Count(c => c.Status == CvStatus.Published),
+            })
+            .OrderByDescending(p => p.CvCount)
+            .Take(5)
+            .ToListAsync();
+
+        _tags = await db.Tags
+            .Select(t => new TagCount { Name = t.Name, Count = t.Projects.Count + t.Positions.Count })
+            .Where(t => t.Count > 0)
+            .OrderByDescending(t => t.Count)
+            .Take(30)
+            .ToListAsync();
+    }
+
+    private sealed class StatsDto
+    {
+        public int Cvs24h { get; set; }
+        public int Positions { get; set; }
+        public int Candidates { get; set; }
+        public int Recruiters { get; set; }
+        public int SubmittedCvs { get; set; }
+    }
+
+    private sealed class PositionRow
+    {
+        public int Id { get; set; }
+        public string Title { get; set; } = "";
+        public string? Company { get; set; }
+        public string? Level { get; set; }
+        public DateTimeOffset UpdatedAt { get; set; }
+    }
+
+    private sealed class PopularRow
+    {
+        public int Id { get; set; }
+        public string Title { get; set; } = "";
+        public int CvCount { get; set; }
+    }
+
+    private sealed class TagCount
+    {
+        public string Name { get; set; } = "";
+        public int Count { get; set; }
+    }
+}

@@ -1,0 +1,305 @@
+@rendermode InteractiveServer
+@page "/admin/users"
+@attribute [Authorize(Roles = "Admin")]
+@using CvHub.Shared
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>User Management — CvHub</PageTitle>
+
+<h1 class="mb-4 text-2xl font-bold">@I18n.T("nav.users")</h1>
+
+<div class="@(ToolbarClass)">
+    <span class="text-sm font-medium">@_selected.Count @I18n.T("common.selected")</span>
+    <button type="button" @onclick="EditSelected" disabled="@(_selected.Count != 1)" title="@(_selected.Count == 1 ? I18n.T("users.edit") : I18n.T("users.edit.single.only"))" class="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50">@I18n.T("common.edit")</button>
+    <button type="button" @onclick='() => SetBlocked(true)' disabled="@(!HasOtherSelected)" title="@(!HasOtherSelected ? "You cannot block your own account" : "")" class="rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">Block</button>
+    <button type="button" @onclick='() => SetBlocked(false)' disabled="@(!HasOtherSelected)" class="rounded-lg bg-slate-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50">Unblock</button>
+    <button type="button" @onclick="RequestDelete" disabled="@(!HasOtherSelected)" title="@(!HasOtherSelected ? "You cannot delete your own account" : "")" class="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50">@I18n.T("common.delete")</button>
+</div>
+
+@if (_confirmDelete)
+{
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="w-full max-w-md rounded-2xl bg-white dark:bg-slate-800 p-5 shadow-2xl">
+            <div class="mb-4 flex items-center justify-between">
+                <h3 class="text-lg font-semibold">Delete @(_pendingDeleteIds.Count) user(s)?</h3>
+                <button type="button" @onclick="CancelDelete" class="text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+            <p class="text-sm text-slate-500 dark:text-slate-400">
+                This will permanently delete: <span class="font-medium text-slate-700 dark:text-slate-200">@string.Join(", ", _pendingDeleteNames)</span>.
+                This cannot be undone.
+            </p>
+            <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                Users with associated data (positions, CVs, …) cannot be deleted until their content is removed.
+            </p>
+            <div class="mt-4 flex justify-end gap-2">
+                <button type="button" @onclick="CancelDelete" class="rounded-lg border border-slate-300 dark:border-slate-600 px-4 py-2 text-sm font-semibold hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button>
+                <button type="button" @onclick="ConfirmDelete" class="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700">@I18n.T("common.delete")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_error is not null)
+{
+    <p class="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300" role="alert">@_error</p>
+}
+
+<div class="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="border-b border-slate-200 dark:border-slate-700 text-left text-xs uppercase tracking-wide text-slate-500">
+                <th class="w-10 px-3 py-2"><input type="checkbox" checked="@AllChecked" @onchange="ToggleAll" class="h-4 w-4 rounded accent-brand-600" /></th>
+                <th class="px-4 py-2">@I18n.T("table.name")</th>
+                <th class="px-4 py-2">Email</th>
+                <th class="px-4 py-2">Roles</th>
+                <th class="px-4 py-2">Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var u in _users)
+            {
+                var row = u;
+                <tr class="border-b border-slate-100 dark:border-slate-700/50 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-700/30">
+                    <td class="px-3 py-2">
+                        <input type="checkbox" checked="@(_selected.Contains(row.Id))" @onchange="e => ToggleRow(row.Id, e)" class="h-4 w-4 rounded accent-brand-600" />
+                    </td>
+                    <td class="px-4 py-2">
+                        <span class="font-medium">@(row.DisplayName ?? row.Email)</span>
+                        @if (row.Id == _currentUserId)
+                        {
+                            <span class="ml-1 text-[10px] uppercase text-brand-500">you</span>
+                        }
+                    </td>
+                    <td class="px-4 py-2 text-slate-500">@row.Email</td>
+                    <td class="px-4 py-2">
+                        @foreach (var r in row.Roles)
+                        {
+                            <span class="mr-1 rounded-full bg-brand-50 dark:bg-brand-900/40 px-2 py-0.5 text-xs text-brand-700 dark:text-brand-300">@r</span>
+                        }
+                    </td>
+                    <td class="px-4 py-2">
+                        @if (row.IsBlocked)
+                        {
+                            <span class="rounded-full bg-rose-100 dark:bg-rose-900/40 px-2 py-0.5 text-xs text-rose-600 dark:text-rose-400">blocked</span>
+                        }
+                        else
+                        {
+                            <span class="rounded-full bg-emerald-100 dark:bg-emerald-900/40 px-2 py-0.5 text-xs text-emerald-600 dark:text-emerald-400">active</span>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@if (_editorOpen && _editUser is not null)
+{
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="w-full max-w-md rounded-2xl bg-white dark:bg-slate-800 p-5 shadow-2xl">
+            <div class="mb-4 flex items-center justify-between">
+                <h3 class="text-lg font-semibold">@I18n.T("users.edit")</h3>
+                <button type="button" @onclick="CloseEditor" class="text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+
+            <p class="mb-4 text-sm text-slate-500 dark:text-slate-400">@(_editUser.DisplayName ?? _editUser.Email) — @_editUser.Email</p>
+
+            <fieldset class="mb-4">
+                <legend class="mb-2 block text-sm font-medium">Roles</legend>
+                <div class="flex flex-col gap-2">
+                    @foreach (var role in AllRoles)
+                    {
+                        <label class="flex items-center gap-2 text-sm">
+                            <input type="checkbox" checked="@_draftRoles.Contains(role)" @onchange="e => ToggleDraftRole(role, e)" class="h-4 w-4 rounded accent-brand-600" />
+                            @role
+                        </label>
+                    }
+                </div>
+            </fieldset>
+
+            @if (IsSelfDemotion)
+            {
+                <p class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300" role="alert">
+                    Removing your own Admin role will immediately revoke your access to admin pages (including this one).
+                </p>
+            }
+
+            <div class="flex justify-end gap-2">
+                <button type="button" @onclick="CloseEditor" class="rounded-lg border border-slate-300 dark:border-slate-600 px-4 py-2 text-sm font-semibold hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button>
+                @if (IsSelfDemotion)
+                {
+                    <button type="button" @onclick="SaveEditor" class="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700">Confirm Admin removal</button>
+                }
+                else
+                {
+                    <button type="button" @onclick="SaveEditor" class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700">Save</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly string[] AllRoles = ["Candidate", "Recruiter", "Admin"];
+
+    private List<UserRow> _users = [];
+    private HashSet<string> _selected = [];
+    private string _currentUserId = "";
+    private string? _error;
+    private bool _editorOpen;
+    private UserRow? _editUser;
+    private HashSet<string> _draftRoles = [];
+    private bool _confirmDelete;
+    private List<string> _pendingDeleteIds = [];
+    private List<string> _pendingDeleteNames = [];
+
+    private string ToolbarClass => _selected.Count > 0
+        ? "mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-brand-200 dark:border-brand-900 bg-brand-50 dark:bg-brand-900/20 px-4 py-2"
+        : "hidden";
+
+    private bool AllChecked => _users.Count > 0 && _users.All(u => _selected.Contains(u.Id));
+
+    private bool HasOtherSelected => _selected.Any(id => id != _currentUserId);
+
+    private bool IsSelfDemotion => _editorOpen && _editUser is not null
+        && _editUser.Id == _currentUserId
+        && _editUser.Roles.Contains("Admin")
+        && !_draftRoles.Contains("Admin");
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        _currentUserId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _users = await db.Users.OrderBy(u => u.Email).Select(u => new UserRow
+        {
+            Id = u.Id,
+            Email = u.Email,
+            DisplayName = u.DisplayName,
+            IsBlocked = u.IsBlocked,
+            Roles = db.UserRoles.Where(ur => ur.UserId == u.Id)
+                .Join(db.Roles, ur => ur.RoleId, r => r.Id, (ur, r) => r.Name!).ToList(),
+        }).ToListAsync();
+    }
+
+    private void ToggleAll(ChangeEventArgs e)
+    {
+        _selected = e.Value is true
+            ? new HashSet<string>(_users.Select(u => u.Id))
+            : [];
+    }
+
+    private void ToggleRow(string id, ChangeEventArgs e) { if (e.Value is true) _selected.Add(id); else _selected.Remove(id); }
+
+    private void EditSelected()
+    {
+        if (_selected.Count != 1) return;
+        _editUser = _users.FirstOrDefault(u => u.Id == _selected.First());
+        if (_editUser is null) return;
+        _draftRoles = new HashSet<string>(_editUser.Roles);
+        _editorOpen = true;
+    }
+
+    private void ToggleDraftRole(string role, ChangeEventArgs e) { if (e.Value is true) _draftRoles.Add(role); else _draftRoles.Remove(role); }
+
+    private void CloseEditor() { _editorOpen = false; _editUser = null; }
+
+    private async Task SaveEditor()
+    {
+        if (_editUser is null) return;
+
+        var user = await UserManager.FindByIdAsync(_editUser.Id);
+        if (user is null) { _error = "User no longer exists."; _editorOpen = false; await LoadAsync(); return; }
+
+        foreach (var role in AllRoles)
+        {
+            if (_draftRoles.Contains(role) && !_editUser.Roles.Contains(role))
+            {
+                var res = await UserManager.AddToRoleAsync(user, role);
+                if (!res.Succeeded) { _error = string.Join("; ", res.Errors.Select(x => x.Description)); }
+            }
+            else if (!_draftRoles.Contains(role) && _editUser.Roles.Contains(role))
+            {
+                var res = await UserManager.RemoveFromRoleAsync(user, role);
+                if (!res.Succeeded) { _error = string.Join("; ", res.Errors.Select(x => x.Description)); }
+            }
+        }
+
+        _editorOpen = false;
+        _editUser = null;
+        _selected.Clear();
+        await LoadAsync();
+    }
+
+    private async Task SetBlocked(bool blocked)
+    {
+        _error = null;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var ids = _selected.Where(id => id != _currentUserId).ToList();
+        if (ids.Count == 0) return;
+        await db.Users.Where(u => ids.Contains(u.Id)).ExecuteUpdateAsync(s => s.SetProperty(u => u.IsBlocked, blocked));
+        _selected.Clear();
+        await LoadAsync();
+    }
+
+    private void RequestDelete()
+    {
+        _error = null;
+        _pendingDeleteIds = _selected.Where(id => id != _currentUserId).ToList();
+        if (_pendingDeleteIds.Count == 0) return;
+        _pendingDeleteNames = _users.Where(u => _pendingDeleteIds.Contains(u.Id))
+            .Select(u => u.DisplayName ?? u.Email ?? u.Id).ToList();
+        _confirmDelete = true;
+    }
+
+    private void CancelDelete() { _confirmDelete = false; _pendingDeleteIds = []; _pendingDeleteNames = []; }
+
+    private async Task ConfirmDelete()
+    {
+        var ids = _pendingDeleteIds;
+        _confirmDelete = false;
+        _pendingDeleteIds = [];
+        _pendingDeleteNames = [];
+        if (ids.Count == 0) return;
+
+        _error = null;
+        var failed = new List<string>();
+        foreach (var id in ids)
+        {
+            var user = await UserManager.FindByIdAsync(id);
+            if (user is null) continue;
+            try
+            {
+                await UserManager.DeleteAsync(user);
+            }
+            catch (DbUpdateException)
+            {
+                // FK data (positions, CVs, …) still references this user.
+                failed.Add(user.Email ?? user.UserName ?? id);
+            }
+        }
+        if (failed.Count > 0)
+            _error = $"Could not delete: {string.Join(", ", failed)} — they have associated data. Remove their content first.";
+
+        _selected.Clear();
+        await LoadAsync();
+    }
+
+    private sealed class UserRow
+    {
+        public string Id { get; set; } = "";
+        public string? Email { get; set; }
+        public string? DisplayName { get; set; }
+        public bool IsBlocked { get; set; }
+        public List<string> Roles { get; set; } = [];
+    }
+}

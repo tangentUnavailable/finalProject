@@ -1,0 +1,217 @@
+﻿@page "/Account/Register"
+
+@using System.ComponentModel.DataAnnotations
+@using System.Text
+@using System.Text.Encodings.Web
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.WebUtilities
+@using CvHub.Data
+
+@inject UserManager<ApplicationUser> UserManager
+@inject IUserStore<ApplicationUser> UserStore
+@inject SignInManager<ApplicationUser> SignInManager
+@inject IEmailSender<ApplicationUser> EmailSender
+@inject ILogger<Register> Logger
+@inject NavigationManager NavigationManager
+@inject IdentityRedirectManager RedirectManager
+
+@using CvHub.Shared
+<PageTitle>@I18n.T("account.register.title") — CvHub</PageTitle>
+
+<section class="mx-auto flex min-h-[70vh] w-full max-w-md flex-col justify-center py-8">
+    <div class="mb-8 text-center">
+        <span class="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-600 text-xl font-bold text-white shadow-lg shadow-brand-600/25">CV</span>
+        <h1 class="text-2xl font-bold tracking-tight">@I18n.T("account.register.title")</h1>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">@I18n.T("account.register.tagline")</p>
+    </div>
+
+    <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8 dark:border-slate-700 dark:bg-slate-800">
+        <StatusMessage Message="@Message" />
+        <EditForm Model="Input" method="post" OnValidSubmit="RegisterUser" FormName="register" class="space-y-4">
+            <DataAnnotationsValidator />
+            <ValidationSummary class="hidden" role="alert" />
+
+            <div>
+                <label for="Input.Email" class="mb-1 block text-sm font-medium">@I18n.T("account.email")</label>
+                <InputText @bind-Value="Input.Email" id="Input.Email" autocomplete="username" aria-required="true" placeholder="name@example.com"
+                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-slate-600 dark:bg-slate-900" />
+                <ValidationMessage For="() => Input.Email" class="mt-1 block text-xs text-rose-500" />
+            </div>
+
+            <div>
+                <label for="Input.Password" class="mb-1 block text-sm font-medium">@I18n.T("account.password")</label>
+                <InputText type="password" @bind-Value="Input.Password" id="Input.Password" autocomplete="new-password" aria-required="true" placeholder="••••••••"
+                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-slate-600 dark:bg-slate-900"
+                           @onfocus="() => _passwordFocused = true"
+                           @onblur="() => _passwordFocused = false" />
+                <ValidationMessage For="() => Input.Password" class="mt-1 block text-xs text-rose-500" />
+                @if (_passwordFocused || !string.IsNullOrEmpty(Input.Password))
+                {
+                    <div class="mt-2 space-y-1" role="list" aria-label="@I18n.T("account.register.passwordRequirements")">
+                        <div class="flex items-center gap-2 text-xs @(_checks[0] ? "text-emerald-600" : "text-slate-400")">
+                            <span class="@(_checks[0] ? "text-emerald-500" : "text-slate-300 dark:text-slate-500")">✓</span>
+                            <span>@I18n.T("account.register.reqMinLength")</span>
+                        </div>
+                        <div class="flex items-center gap-2 text-xs @(_checks[1] ? "text-emerald-600" : "text-slate-400")">
+                            <span class="@(_checks[1] ? "text-emerald-500" : "text-slate-300 dark:text-slate-500")">✓</span>
+                            <span>@I18n.T("account.register.reqUppercase")</span>
+                        </div>
+                        <div class="flex items-center gap-2 text-xs @(_checks[2] ? "text-emerald-600" : "text-slate-400")">
+                            <span class="@(_checks[2] ? "text-emerald-500" : "text-slate-300 dark:text-slate-500")">✓</span>
+                            <span>@I18n.T("account.register.reqLowercase")</span>
+                        </div>
+                        <div class="flex items-center gap-2 text-xs @(_checks[3] ? "text-emerald-600" : "text-slate-400")">
+                            <span class="@(_checks[3] ? "text-emerald-500" : "text-slate-300 dark:text-slate-500")">✓</span>
+                            <span>@I18n.T("account.register.reqDigit")</span>
+                        </div>
+                        <div class="flex items-center gap-2 text-xs @(_checks[4] ? "text-emerald-600" : "text-slate-400")">
+                            <span class="@(_checks[4] ? "text-emerald-500" : "text-slate-300 dark:text-slate-500")">✓</span>
+                            <span>@I18n.T("account.register.reqSpecial")</span>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div>
+                <label for="Input.ConfirmPassword" class="mb-1 block text-sm font-medium">@I18n.T("account.register.confirm")</label>
+                <InputText type="password" @bind-Value="Input.ConfirmPassword" id="Input.ConfirmPassword" autocomplete="new-password" aria-required="true" placeholder="••••••••"
+                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-slate-600 dark:bg-slate-900" />
+                <ValidationMessage For="() => Input.ConfirmPassword" class="mt-1 block text-xs text-rose-500" />
+            </div>
+
+            <button type="submit" class="w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2">
+                @I18n.T("account.register.title")
+            </button>
+
+            <div class="flex items-center gap-3 py-1" aria-hidden="true">
+                <span class="h-px flex-1 bg-slate-200 dark:bg-slate-700"></span>
+                <span class="text-xs uppercase tracking-wide text-slate-400">@I18n.T("account.login.or")</span>
+                <span class="h-px flex-1 bg-slate-200 dark:bg-slate-700"></span>
+            </div>
+
+            <ExternalLoginPicker />
+
+            <p class="text-center text-sm text-slate-500 dark:text-slate-400">
+                @I18n.T("account.login.haveaccount")
+                <a href="Account/Login" class="font-semibold text-brand-600 hover:underline dark:text-brand-400">@I18n.T("account.login.title")</a>
+            </p>
+        </EditForm>
+    </div>
+</section>
+
+@code {
+    private string? Message;
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    #pragma warning disable BL0008
+    [SupplyParameterFromForm]
+    private InputModel Input { get; set; } = new();
+    #pragma warning restore BL0008
+
+    private bool _passwordFocused;
+
+    /// <summary>
+    /// Password-strength checklist, always derived from the bound model so it is
+    /// correct in interactive renders (keystroke) and form-POST re-renders alike.
+    /// </summary>
+    private bool[] _checks => BuildChecks(Input.Password);
+
+    private static bool[] BuildChecks(string? pwd)
+    {
+        pwd ??= "";
+        return
+        [
+            pwd.Length >= 6,
+            pwd.Any(char.IsUpper),
+            pwd.Any(char.IsLower),
+            pwd.Any(char.IsDigit),
+            pwd.Any(ch => !char.IsLetterOrDigit(ch))
+        ];
+    }
+
+    public async Task RegisterUser()
+    {
+        var user = CreateUser();
+
+        await UserStore.SetUserNameAsync(user, Input.Email, CancellationToken.None);
+        var emailStore = GetEmailStore();
+        await emailStore.SetEmailAsync(user, Input.Email, CancellationToken.None);
+        var result = await UserManager.CreateAsync(user, Input.Password);
+
+        if (result.Succeeded)
+        {
+            Logger.LogInformation("User created a new account with password.");
+
+            var userId = await UserManager.GetUserIdAsync(user);
+            var code = await UserManager.GenerateEmailConfirmationTokenAsync(user);
+            code = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(code));
+            // Absolute URL: emails must contain a link the user can click from their inbox.
+            var callbackUrl = NavigationManager.GetUriWithQueryParameters(
+                NavigationManager.ToAbsoluteUri("Account/ConfirmEmail").AbsoluteUri,
+                new Dictionary<string, object?> { ["userId"] = userId, ["code"] = code, ["returnUrl"] = ReturnUrl });
+
+            await EmailSender.SendConfirmationLinkAsync(user, Input.Email, callbackUrl);
+
+            if (UserManager.Options.SignIn.RequireConfirmedAccount)
+            {
+                RedirectManager.RedirectTo("Account/RegisterConfirmation", new() { ["email"] = Input.Email, ["returnUrl"] = ReturnUrl });
+            }
+            else
+            {
+                await SignInManager.SignInAsync(user, isPersistent: false);
+                RedirectManager.RedirectTo(ReturnUrl);
+            }
+        }
+        else
+        {
+            Message = $"Error: {string.Join(", ", result.Errors.Select(error => error.Description))}";
+        }
+    }
+
+    private ApplicationUser CreateUser()
+    {
+        try
+        {
+            return Activator.CreateInstance<ApplicationUser>();
+        }
+        catch
+        {
+            throw new InvalidOperationException($"Can't create an instance of '{nameof(ApplicationUser)}'. " +
+                $"Ensure that '{nameof(ApplicationUser)}' is not an abstract class and has a parameterless constructor, or alternatively " +
+                $"override the register page in /Account/Register.cshtml.");
+        }
+    }
+
+    private IUserEmailStore<ApplicationUser> GetEmailStore()
+    {
+        if (!UserManager.SupportsUserEmail)
+        {
+            throw new NotSupportedException("The default UI requires a user store with email support.");
+        }
+        return (IUserEmailStore<ApplicationUser>)UserStore;
+    }
+
+    private sealed class InputModel
+    {
+        [Required]
+        [EmailAddress]
+        [Display(Name = "Email")]
+        public string Email { get; set; } = "";
+
+        [Required]
+        [StringLength(100, ErrorMessage = "The {0} must be at least {2} and at max {1} characters long.", MinimumLength = 6)]
+        [DataType(DataType.Password)]
+        [Display(Name = "Password")]
+        public string Password { get; set; } = "";
+
+        [DataType(DataType.Password)]
+        [Display(Name = "Confirm password")]
+        [Compare("Password", ErrorMessage = "The password and confirmation password do not match.")]
+        public string ConfirmPassword { get; set; } = "";
+    }
+}

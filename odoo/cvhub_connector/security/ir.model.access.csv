@@ -1,0 +1,8 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_cvhub_position_user,cvhub.position.user,model_cvhub_position,base.group_user,1,0,0,0
+access_cvhub_position_manager,cvhub.position.manager,model_cvhub_position,group_cvhub_manager,1,1,1,1
+access_cvhub_position_attribute_user,cvhub.position.attribute.user,model_cvhub_position_attribute,base.group_user,1,0,0,0
+access_cvhub_position_attribute_manager,cvhub.position.attribute.manager,model_cvhub_position_attribute,group_cvhub_manager,1,1,1,1
+access_cvhub_import_wizard_manager,cvhub.import.wizard.manager,model_cvhub_import_wizard,group_cvhub_manager,1,1,1,1
+access_cvhub_export_wizard_manager,cvhub.export.wizard.manager,model_cvhub_export_wizard,group_cvhub_manager,1,1,1,1
+access_cvhub_export_wizard_line_manager,cvhub.export.wizard.line.manager,model_cvhub_export_wizard_line,group_cvhub_manager,1,1,1,1

@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Position list -->
+    <record id="view_cvhub_position_tree" model="ir.ui.view">
+        <field name="name">cvhub.position.tree</field>
+        <field name="model">cvhub.position</field>
+        <field name="arch" type="xml">
+            <list string="CvHub Positions">
+                <field name="name"/>
+                <field name="company_name"/>
+                <field name="level"/>
+                <field name="cv_count" string="Published CVs"/>
+                <field name="attribute_count" string="Attributes"/>
+                <field name="cvhub_updated_at"/>
+                <field name="exported" widget="boolean_toggle" optional="show"/>
+                <field name="last_imported_at" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Position detail: attributes with aggregated results -->
+    <record id="view_cvhub_position_form" model="ir.ui.view">
+        <field name="name">cvhub.position.form</field>
+        <field name="model">cvhub.position</field>
+        <field name="arch" type="xml">
+            <form string="CvHub Position">
+                <header>
+                    <button name="action_reimport" type="object" string="Refresh from CvHub"
+                            class="btn-primary" icon="fa-refresh"
+                            invisible="not cvhub_id"/>
+                    <button name="action_export_back" type="object" string="Export to CvHub"
+                            class="btn-secondary" icon="fa-upload"
+                            invisible="exported or cvhub_id"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" placeholder="Position title"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="company_name"/>
+                            <field name="level"/>
+                            <field name="access"/>
+                            <field name="max_projects"/>
+                        </group>
+                        <group>
+                            <field name="cvhub_id"/>
+                            <field name="cv_count"/>
+                            <field name="cvhub_updated_at"/>
+                            <field name="source_url"/>
+                            <field name="exported" invisible="not exported"/>
+                            <field name="cvhub_export_id" invisible="not cvhub_export_id"/>
+                        </group>
+                    </group>
+                    <field name="short_description"/>
+                    <notebook>
+                        <page string="Attributes &amp; Aggregated Results">
+                            <field name="attribute_ids">
+                                <list string="Attributes" editable="bottom">
+                                    <field name="name"/>
+                                    <field name="attr_type"/>
+                                    <field name="required"/>
+                                    <field name="section"/>
+                                    <field name="aggregate_summary" string="Aggregated result"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_cvhub_position_search" model="ir.ui.view">
+        <field name="name">cvhub.position.search</field>
+        <field name="model">cvhub.position</field>
+        <field name="arch" type="xml">
+            <search string="CvHub Positions">
+                <field name="name"/>
+                <field name="company_name"/>
+                <field name="level"/>
+                <group expand="0" string="Group By">
+                    <filter name="group_company" string="Company" context="{'group_by': 'company_name'}"/>
+                    <filter name="group_level" string="Level" context="{'group_by': 'level'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- Import wizard -->
+    <record id="view_cvhub_import_wizard_form" model="ir.ui.view">
+        <field name="name">cvhub.import.wizard.form</field>
+        <field name="model">cvhub.import.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Import from CvHub">
+                <group>
+                    <field name="base_url" placeholder="https://cvms.tangent.website"/>
+                    <!-- Odoo 18 dropped the password="True" view attribute; the field itself is
+                         declared password=True on the model, so the widget already masks it. -->
+                    <field name="api_token"/>
+                </group>
+                <field name="result_summary" invisible="not result_summary"/>
+                <footer>
+                    <button name="action_import" type="object" string="Import" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Export-back wizard -->
+    <record id="view_cvhub_export_wizard_form" model="ir.ui.view">
+        <field name="name">cvhub.export.wizard.form</field>
+        <field name="model">cvhub.export.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Create &amp; Export Position to CvHub">
+                <group>
+                    <group>
+                        <field name="name" placeholder="e.g. Senior Python Developer"/>
+                        <field name="company_name"/>
+                        <field name="level"/>
+                    </group>
+                    <group>
+                        <field name="max_projects"/>
+                        <field name="short_description"/>
+                    </group>
+                </group>
+                <separator string="Attributes"/>
+                <field name="attribute_line_ids">
+                    <list editable="bottom">
+                        <field name="name"/>
+                        <field name="attr_type"/>
+                        <field name="required"/>
+                        <field name="section"/>
+                        <field name="options" invisible="attr_type != 'OneOfMany'"/>
+                    </list>
+                </field>
+                <footer>
+                    <button name="action_export" type="object" string="Create &amp; Export" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Actions & menus -->
+    <record id="action_cvhub_positions" model="ir.actions.act_window">
+        <field name="name">CvHub Positions</field>
+        <field name="res_model">cvhub.position</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No CvHub positions imported yet</p>
+            <p>Use CvHub &gt; Import from CvHub and provide the API token generated in CvHub.</p>
+        </field>
+    </record>
+
+    <record id="action_cvhub_import_wizard" model="ir.actions.act_window">
+        <field name="name">Import from CvHub</field>
+        <field name="res_model">cvhub.import.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <record id="action_cvhub_export_wizard" model="ir.actions.act_window">
+        <field name="name">Create &amp; Export Position</field>
+        <field name="res_model">cvhub.export.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <menuitem id="menu_cvhub_root" name="CvHub" web_icon="cvhub_connector,static/description/icon.png" sequence="60"/>
+    <menuitem id="menu_cvhub_positions" name="Positions" parent="menu_cvhub_root" action="action_cvhub_positions" sequence="10"/>
+    <menuitem id="menu_cvhub_import" name="Import from CvHub" parent="menu_cvhub_root" action="action_cvhub_import_wizard" sequence="20"/>
+    <menuitem id="menu_cvhub_export" name="Create &amp; Export Position" parent="menu_cvhub_root" action="action_cvhub_export_wizard" sequence="30"/>
+</odoo>

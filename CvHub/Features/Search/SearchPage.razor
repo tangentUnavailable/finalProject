@@ -1,0 +1,79 @@
+@rendermode InteractiveServer
+@page "/search"
+@using CvHub.Domain
+@using CvHub.Features.Search
+@using CvHub.Infrastructure
+@using CvHub.Shared
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using System.Security.Claims
+@attribute [Authorize]
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Search — CvHub</PageTitle>
+
+<h1 class="mb-6 text-2xl font-bold">@I18n.T("search.button"): “@_q”</h1>
+
+@if (_loading)
+{
+    <div class="text-slate-400">@I18n.T("common.loading")</div>
+}
+else
+{
+    @foreach (var (label, hits) in new[] { (I18n.T("search.section.positions"), (IReadOnlyList<SearchEndpoints.Hit>?)_results?.Positions), (I18n.T("search.section.attributes"), _results?.Attributes), (I18n.T("search.section.tags"), _results?.Tags), (I18n.T("search.section.cvs"), _results?.Cvs) })
+    {
+        @if (hits is { Count: > 0 })
+        {
+            <h2 class="mb-2 mt-6 text-sm font-bold uppercase tracking-wide text-slate-400">@label</h2>
+            <div class="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+                <table class="w-full text-sm">
+                    <tbody>
+                        @foreach (var h in hits)
+                        {
+                            <tr class="border-b border-slate-100 dark:border-slate-700/50 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-700/30">
+                                <td class="px-4 py-2">
+                                    <a href="@h.Href" class="font-medium text-brand-600 dark:text-brand-400 hover:underline">@h.Title</a>
+                                    @if (h.Subtitle is not null)
+                                    {
+                                        <span class="ml-2 text-xs text-slate-400">@h.Subtitle</span>
+                                    }
+                                </td>
+                                <td class="px-4 py-2 text-right text-xs uppercase text-slate-400">@(h.Kind == "cv" ? $"👍 {h.Likes}" : h.Kind)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+    @if ((_results?.Positions.Count ?? 0) == 0 && (_results?.Attributes.Count ?? 0) == 0 && (_results?.Tags.Count ?? 0) == 0)
+    {
+        <div class="rounded-xl border border-dashed border-slate-300 dark:border-slate-600 p-8 text-center text-slate-400">@I18n.T("search.nothing")</div>
+    }
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "q")] public string? Q { get; set; }
+    [SupplyParameterFromQuery(Name = "scope")] public string? Scope { get; set; }
+
+    private string _q = "";
+    private bool _loading = true;
+    private SearchEndpoints.SearchResults? _results;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _q = Q ?? "";
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _results = await SearchEndpoints.QueryAsync(db, _q, Scope ?? "all");
+
+        // Recruiters/Admins additionally search published CV content.
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        if (auth.User.IsRecruiterOrAdmin())
+        {
+            _results.Cvs = await SearchEndpoints.SearchCvsAsync(db, _q);
+        }
+
+        _loading = false;
+    }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "cvhub-ui",
+  "private": true,
+  "scripts": {
+    "build:css": "tailwindcss -i ./Tailwind/app.css -o ./CvHub/wwwroot/app.css --minify",
+    "watch:css": "tailwindcss -i ./Tailwind/app.css -o ./CvHub/wwwroot/app.css --watch",
+    "publish": "npm run build:css && dotnet publish CvHub/CvHub.csproj -c Release -o publish --nologo",
+    "deploy": "npm run publish && rsync -av --exclude='appsettings*' --exclude='*.pdb' --exclude='.env*' --rsync-path=\"sudo rsync\" --chown=ubuntu:ubuntu publish/ oracle:/home/ubuntu/cvhub/ && ssh oracle \"sudo systemctl restart cvhub && sleep 10\"",
+    "deploy:verify": "for p in / /positions /Account/Login; do curl -s -o /dev/null -w \"$p=%{http_code}\\n\" http://cvms.tangent.website$p; done"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.13",
+    "tailwindcss": "^4.1.13"
+  }
+}

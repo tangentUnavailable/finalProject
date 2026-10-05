@@ -1,0 +1,155 @@
+@import "tailwindcss";
+
+/* Dark mode via .dark class on <html>, toggled from the cv_theme cookie. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-brand-50: #eef2ff;
+  --color-brand-100: #e0e7ff;
+  --color-brand-200: #c7d2fe;
+  --color-brand-300: #a5b4fc;
+  --color-brand-400: #818cf8;
+  --color-brand-500: #6366f1;
+  --color-brand-600: #4f46e5;
+  --color-brand-700: #4338ca;
+  --color-brand-800: #3730a3;
+  --color-brand-900: #312e81;
+}
+
+html { scroll-behavior: smooth; }
+body { @apply bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100 antialiased; }
+
+/* FocusOnNavigate programmatically focuses the page <h1> after each navigation
+   (for screen-reader page announcements). h1 is never keyboard-tabbable, so the
+   browser's focus ring is pure noise — hide it. */
+h1:focus { outline: none; box-shadow: none; }
+
+/* Main navigation tabs */
+.nav-link {
+  @apply relative inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 no-underline transition-colors
+         hover:bg-slate-100 hover:text-slate-900
+         dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white;
+}
+.nav-active {
+  @apply bg-brand-50 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300;
+}
+.nav-active::after {
+  content: "";
+  @apply absolute inset-x-2 -bottom-[7px] h-0.5 rounded-full bg-brand-600 dark:bg-brand-400;
+}
+
+/* Theme/lang toggles: the server knows the active mode via cookie (baked into <html>
+   classes), but circuits cannot read HttpContext — so render both variants of each
+   toggle and let CSS pick the correct one. */
+/* Theme/lang toggles: the server knows the active mode via cookie (baked into <html>
+   classes), but circuits cannot read HttpContext — so render both variants of each
+   toggle and let CSS pick the correct one. Class names describe the CURRENT mode
+   in which the element is VISIBLE. */
+.theme-dark-only, .theme-light-only, .lang-es-only, .lang-en-only { display: none; }
+html.dark .theme-dark-only { display: revert; }
+html:not(.dark) .theme-light-only { display: revert; }
+html.lang-es .lang-es-only { display: revert; }
+html:not(.lang-es) .lang-en-only { display: revert; }
+
+/* Print / PDF mode for the CV page: hide chrome and interactive controls, show the
+   QR header, and force light colors (printers have no dark theme). */
+.print-only { display: none; }
+@media print {
+    header, footer, .no-print { display: none !important; }
+    .print-only { display: flex !important; }
+    html.dark body, html.dark .bg-slate-800, html.dark .bg-slate-900,
+    .bg-slate-800, .bg-slate-900, body {
+        background: white !important;
+        color: #0f172a !important;
+    }
+    html.dark *, * { color: #0f172a !important; box-shadow: none !important; }
+    .bg-brand-600 { background: #4f46e5 !important; color: white !important; }
+    .text-brand-600, .text-brand-400 { color: #4f46e5 !important; }
+    .bg-brand-50, .bg-brand-900\/40 { background: #eef2ff !important; }
+    .bg-brand-900\/40 { background: #eef2ff !important; }
+    .rounded-2xl, .rounded-xl, .rounded-lg { border-color: #cbd5e1 !important; }
+}
+
+/* Markdown content styling */
+.md-content { @apply text-sm leading-relaxed; }
+.md-content p { @apply my-2; }
+.md-content h1 { @apply text-xl font-bold my-3; }
+.md-content h2 { @apply text-lg font-bold my-2; }
+.md-content h3 { @apply font-semibold my-2; }
+.md-content ul { @apply list-disc ml-6 my-2; }
+.md-content ol { @apply list-decimal ml-6 my-2; }
+.md-content a { @apply text-brand-600 dark:text-brand-400 underline; }
+.md-content code { @apply bg-slate-100 dark:bg-slate-800 rounded px-1 py-0.5 text-xs; }
+.md-content pre { @apply bg-slate-100 dark:bg-slate-800 rounded-lg p-3 my-2 overflow-x-auto; }
+.md-content blockquote { @apply border-l-4 border-slate-300 dark:border-slate-600 pl-3 italic my-2; }
+.md-content img { @apply max-w-full rounded-lg my-2; }
+
+/* ---------------------------------------------------------------------------
+   Identity "Manage account" pages (Account/Manage/*) are scaffolded with raw
+   Bootstrap class names. The rest of the app is Tailwind-only, so we theme
+   those names here instead of rewriting every scaffolded form. Result: the
+   Manage area uses the same inputs, buttons, alerts, and tables as the rest
+   of the site, in both light and dark mode.
+   --------------------------------------------------------------------------- */
+
+/* Page scaffolding inside ManageLayout */
+.manage-page h3 { @apply mb-4 text-xl font-bold; }
+.manage-page h4 { @apply mt-6 mb-3 text-base font-semibold; }
+.manage-page p { @apply my-2 text-sm text-slate-600 dark:text-slate-300; }
+.manage-page ol { @apply list-decimal ml-6 my-2 space-y-4 text-sm text-slate-600 dark:text-slate-300; }
+.manage-page ol a, .manage-page p a { @apply font-medium text-brand-600 hover:underline dark:text-brand-400; }
+.manage-page hr { @apply my-4 border-slate-200 dark:border-slate-700; }
+.manage-page kbd { @apply rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs dark:bg-slate-800; }
+
+/* Inputs: .form-control / .form-floating (scaffolded) */
+.form-control {
+  @apply block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800
+         placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500
+         dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100;
+}
+.form-control:disabled { @apply cursor-not-allowed bg-slate-50 text-slate-500 dark:bg-slate-800 dark:text-slate-400; }
+.form-floating { @apply relative; }
+.form-floating label { @apply pointer-events-none absolute inset-x-3 top-2 text-sm text-slate-500 dark:text-slate-400; }
+
+/* Validation + info text */
+.text-danger { @apply mt-1 block text-xs text-rose-500; }
+.text-success { @apply text-emerald-600 dark:text-emerald-400; }
+.text-info { @apply text-sm text-slate-600 dark:text-slate-300; }
+
+/* Buttons: .btn + variants */
+.btn { @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold shadow-sm
+       transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2
+       dark:focus:ring-offset-slate-900 disabled:cursor-not-allowed disabled:opacity-50; }
+.btn-primary { @apply bg-brand-600 text-white hover:bg-brand-700; }
+.btn-danger { @apply bg-rose-600 text-white hover:bg-rose-700; }
+.btn-link { @apply px-1 py-0.5 align-baseline text-brand-600 hover:underline dark:text-brand-400; }
+.btn-link, .btn-link:hover { @apply shadow-none; }
+.btn-lg { @apply px-4 py-2.5; }
+.w-100 { @apply w-full; }
+
+/* Alerts */
+.alert { @apply my-3 rounded-lg border px-3 py-2 text-sm; }
+.alert-danger { @apply border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300; }
+.alert-warning { @apply border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300; }
+.alert-info { @apply border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-300; }
+
+/* Status message (Sign in / success banners) */
+.alert-success { @apply border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300; }
+
+/* Scaffolded tables (passkeys, external logins) */
+.manage-page table { @apply mt-3 w-full overflow-hidden rounded-xl border border-slate-200 text-sm dark:border-slate-700; }
+.manage-page table td { @apply border-b border-slate-100 px-4 py-2 last:border-0 dark:border-slate-700/50; }
+
+/* Recovery codes */
+.recovery-code { @apply inline-block rounded bg-slate-100 px-2.5 py-1 font-mono text-sm tracking-wider dark:bg-slate-800; }
+
+/* Grid helpers kept from scaffolding */
+.row { @apply flex flex-col gap-4 lg:flex-row; }
+.col-xl-6, .col-lg-9, .col-md-6, .col-md-12 { @apply min-w-0 flex-1; }
+.col-lg-3 { @apply w-full shrink-0 lg:w-56; }
+
+/* Input group (confirmed-email row) */
+.input-group { @apply flex items-center; }
+.input-group .form-control { @apply pr-10; }
+.input-group-append { @apply -ml-9; }
+.input-group-text { @apply text-base font-bold; }

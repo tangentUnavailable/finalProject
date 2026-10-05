@@ -1,0 +1,368 @@
+@rendermode InteractiveServer
+@using CvHub.Client.Components
+@page "/positions/{Id:int}"
+@using CvHub.Shared
+@using CvHub.Infrastructure
+@using CvHub.Features.Positions
+@using CvHub.Features.Cvs
+@using CvHub.Features.External
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+
+<PageTitle>@_position?.Title — CvHub</PageTitle>
+
+@if (_loading)
+{
+    <div class="text-slate-400">@I18n.T("common.loading")</div>
+}
+else if (_position is not null)
+{
+    <div class="mb-4 flex flex-wrap items-center gap-3">
+        <a href="positions" class="text-sm text-brand-600 dark:text-brand-400 hover:underline">← @I18n.T("nav.positions")</a>
+    </div>
+
+    <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5">
+        <div class="flex flex-wrap items-start gap-3">
+            <div>
+                <h1 class="text-2xl font-bold">@_position.Title</h1>
+                <p class="mt-1 text-sm text-slate-500">@_position.ShortDescription</p>
+            </div>
+            <div class="ml-auto flex flex-wrap gap-2 text-xs">
+                @if (!string.IsNullOrEmpty(_position.Company))
+                {
+                    <span class="rounded-full bg-slate-100 dark:bg-slate-700 px-2.5 py-1">@_position.Company</span>
+                }
+                @if (!string.IsNullOrEmpty(_position.Level))
+                {
+                    <span class="rounded-full bg-brand-50 dark:bg-brand-900/40 px-2.5 py-1 text-brand-700 dark:text-brand-300">@_position.Level</span>
+                }
+                <span class="rounded-full bg-slate-100 dark:bg-slate-700 px-2.5 py-1">@(_position.Access == PositionAccess.Public ? I18n.T("pos.public") : I18n.T("pos.restricted"))</span>
+            </div>
+        </div>
+
+        <div class="mt-4 flex flex-wrap gap-2">
+            @if (_canEdit)
+            {
+                <button type="button" @onclick='() => OpenEditor(_position.Id)' class="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-sm font-medium hover:border-brand-500 hover:text-brand-600">✏️ @I18n.T("pos.edit")</button>
+                <button type="button" @onclick="DuplicateHere" disabled="@_duplicating" class="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-sm font-medium hover:border-brand-500 hover:text-brand-600 disabled:opacity-50">⧉ @I18n.T("pos.duplicate")</button>
+                <a href="/api/positions/@_position.Id/cvs/export" class="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-sm font-medium hover:border-brand-500 hover:text-brand-600">⬇ @I18n.T("csv.export")</a>
+                <button type="button" @onclick="ShowApiToken" class="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-sm font-medium hover:border-brand-500 hover:text-brand-600">🔑 @I18n.T("pos.apitoken")</button>
+            }
+            @if (_candidateCvId is int existingCv)
+            {
+                <a href="cv/@existingCv" class="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-700">@I18n.T("nav.cvs") →</a>
+            }
+            else if (_candidateHasAccess)
+            {
+                <button type="button" @onclick="CreateCv" disabled="@_creating"
+                        class="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50">
+                    @(_creating ? "…" : I18n.T("cv.create"))
+                </button>
+                @if (_createError is not null)
+                {
+                    <span class="self-center text-sm text-rose-600 dark:text-rose-400">@_createError</span>
+                }
+            }
+        </div>
+    </div>
+
+    <div class="mt-5 mb-2 flex gap-2 border-b border-slate-200 dark:border-slate-700">
+        @foreach (var (key, label) in new[] { ("template", "pos.template"), ("cvs", "pos.cvs"), ("discussion", "pos.discussion") })
+        {
+            var active = _tab == key;
+            var showCvs = key == "cvs" && !_canEdit;
+            @if (!showCvs)
+            {
+                <button type="button" @onclick="() => _tab = key"
+                        class="px-3 py-2 text-sm font-medium border-b-2 -mb-px @(active ? "border-brand-600 text-brand-600 dark:text-brand-400" : "border-transparent text-slate-500 hover:text-slate-700")">
+                    @I18n.T(label)
+                </button>
+            }
+        }
+    </div>
+
+    @if (_tab == "template")
+    {
+        <div class="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-slate-200 dark:border-slate-700 text-left text-xs uppercase tracking-wide text-slate-500">
+                        <th class="px-4 py-2">@I18n.T("table.name")</th>
+                        <th class="px-4 py-2">@I18n.T("table.category")</th>
+                        <th class="px-4 py-2">@I18n.T("common.required")</th>
+                        <th class="px-4 py-2">Section</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var a in _position.Attributes)
+                    {
+                        <tr class="border-b border-slate-100 dark:border-slate-700/50 last:border-0">
+                            <td class="px-4 py-2 font-medium">@a.Name</td>
+                            <td class="px-4 py-2">@a.Category</td>
+                            <td class="px-4 py-2">@(a.Required ? "✓" : "")</td>
+                            <td class="px-4 py-2">@a.Section</td>
+                        </tr>
+                    }
+                    @if (!_position.Attributes.Any())
+                    {
+                        <tr><td colspan="4" class="px-4 py-6 text-center text-slate-400">Empty template.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        @if (_canEdit && _position.Filters.Any())
+        {
+            <h3 class="mb-2 mt-6 text-sm font-bold uppercase tracking-wide text-slate-400">@I18n.T("pos.access")</h3>
+            <ul class="space-y-1 text-sm">
+                @foreach (var f in _position.Filters)
+                {
+                    <li>@f.Name @OpLabel(f.Operator) <span class="font-mono text-xs">@f.Value</span></li>
+                }
+            </ul>
+        }
+    }
+    else if (_tab == "cvs")
+    {
+        <div class="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-slate-200 dark:border-slate-700 text-left text-xs uppercase tracking-wide text-slate-500">
+                        <th class="px-4 py-2">@I18n.T("table.candidate")</th>
+                        <th class="px-4 py-2">@I18n.T("table.likes")</th>
+                        <th class="px-4 py-2">@I18n.T("pos.projects")</th>
+                        <th class="px-4 py-2">@I18n.T("table.published")</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var c in _cvs)
+                    {
+                        var row = c;
+                        <tr class="group border-b border-slate-100 dark:border-slate-700/50 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-700/30">
+                            <td class="px-4 py-2">
+                                <a href="cv/@row.Id" class="font-medium text-brand-600 dark:text-brand-400 hover:underline">@(row.CandidateName ?? "user")</a>
+                            </td>
+                            <td class="px-4 py-2">👍 @row.Likes</td>
+                            <td class="px-4 py-2">@row.ProjectCount</td>
+                            <td class="px-4 py-2 text-slate-500">@row.PublishedAt?.ToString("MMM d, yyyy")</td>
+                        </tr>
+                    }
+                    @if (!_cvs.Any())
+                    {
+                        <tr><td colspan="4" class="px-4 py-6 text-center text-slate-400">No published CVs yet.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    else
+    {
+        <DiscussionPanel PositionId="Id" />
+    }
+}
+
+@if (_editorOpen)
+{
+    <PositionEditor PositionId="_editId" OnClosed="OnEditorClosed" />
+}
+
+@if (_apiTokenVisible)
+{
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-800 p-5 shadow-2xl">
+            <div class="mb-4 flex items-center justify-between">
+                <h3 class="text-lg font-semibold">@I18n.T("pos.apitoken.title")</h3>
+                <button type="button" @onclick="() => _apiTokenVisible = false" class="text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+            @if (_apiTokenError is not null)
+            {
+                <div class="mb-3 rounded-lg bg-rose-50 dark:bg-rose-900/30 border border-rose-300 dark:border-rose-700 px-3 py-2 text-xs text-rose-700 dark:text-rose-400">@_apiTokenError</div>
+            }
+            @if (_apiToken is null)
+            {
+                <p class="mb-4 text-sm text-slate-500 dark:text-slate-400">@I18n.T("pos.apitoken.intro")</p>
+                <div class="flex justify-end">
+                    <button type="button" @onclick="GenerateApiToken" class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700">@I18n.T("pos.apitoken.generate")</button>
+                </div>
+            }
+            else
+            {
+                <p class="mb-2 text-sm text-slate-500 dark:text-slate-400">@I18n.T("pos.apitoken.note")</p>
+                <div class="mb-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 font-mono text-xs break-all">@_apiToken</div>
+                <p class="mb-4 text-xs text-slate-400 font-mono break-all">@I18n.T("pos.apitoken.example")</p>
+                <div class="flex justify-end">
+                    <button type="button" @onclick="() => _apiTokenVisible = false" class="rounded-lg border border-slate-300 dark:border-slate-600 px-4 py-2 text-sm font-semibold hover:bg-slate-100 dark:hover:bg-slate-700">@I18n.T("common.close")</button>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private bool _loading = true;
+    private string _tab = "template";
+    private PosDetailsDto? _position;
+    private List<CvRow> _cvs = [];
+    private bool _canEdit;
+    private bool _candidateHasAccess;
+    private int? _candidateCvId;
+    private bool _creating;
+    private string? _createError;
+    private string? _userId;
+    private bool _isRecruiterOrAdmin;
+    private bool _editorOpen;
+    private int? _editId;
+    private bool _duplicating;
+    private bool _apiTokenVisible;
+    private string? _apiToken;
+    private string? _apiTokenError;
+
+    private async Task DuplicateHere()
+    {
+        _duplicating = true;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var auth = await AuthState.GetAuthenticationStateAsync();
+            var uid = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+            var newId = await PositionCommands.DuplicateAsync(db, Id, uid);
+            if (newId is int id) Nav.NavigateTo($"positions/{id}");
+        }
+        finally { _duplicating = false; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var uid = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        _userId = uid;
+        _isRecruiterOrAdmin = auth.User.IsRecruiterOrAdmin();
+        _canEdit = _isRecruiterOrAdmin;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var pos = await db.Positions.Where(p => p.Id == Id)
+            .Select(p => new PosDetailsDto
+            {
+                Id = p.Id, Title = p.Title, ShortDescription = p.ShortDescription, Company = p.Company,
+                Level = p.Level, Access = p.Access,
+                Attributes = p.Attributes.OrderBy(a => a.SortOrder).Select(a => new AttrLineDto(a.Attribute.Name, a.Attribute.Category, a.Required, a.Section)).ToList(),
+                Filters = p.Filters.Select(f => new FilterLineDto(f.Attribute.Name, f.Operator, f.Value)).ToList(),
+            })
+            .FirstOrDefaultAsync();
+        if (pos is null) { Nav.NavigateTo("not-found"); return; }
+        _position = pos;
+
+        if (_canEdit)
+        {
+            _cvs = await db.Cvs.Where(c => c.PositionId == Id && c.Status == CvStatus.Published)
+                .Select(c => new CvRow
+                {
+                    Id = c.Id,
+                    CandidateName = db.Users.Where(u => u.Id == c.UserId).Select(u => u.DisplayName ?? u.UserName).FirstOrDefault(),
+                    Likes = db.Likes.Count(l => l.CvId == c.Id),
+                    ProjectCount = c.Projects.Count,
+                    PublishedAt = c.PublishedAt,
+                })
+                .ToListAsync();
+        }
+        else if (uid is not null)
+        {
+            _candidateCvId = await db.Cvs.Where(c => c.PositionId == Id && c.UserId == uid).Select(c => (int?)c.Id).FirstOrDefaultAsync();
+            var values = await db.AttributeValues.Where(v => v.UserId == uid).ToDictionaryAsync(v => v.AttributeId);
+            var fullPos = await db.Positions.Include(p => p.Filters).ThenInclude(f => f.Attribute).FirstAsync(p => p.Id == Id);
+            _candidateHasAccess = AccessRules.HasAccess(fullPos, values, false);
+        }
+        else
+        {
+            _candidateHasAccess = _position.Access == PositionAccess.Public;
+        }
+
+        _loading = false;
+    }
+
+    private void ShowApiToken()
+    {
+        _apiToken = null;
+        _apiTokenError = null;
+        _apiTokenVisible = true;
+    }
+
+    private async Task GenerateApiToken()
+    {
+        _apiTokenError = null;
+        try
+        {
+            // In-process: the internal HttpClient carries no auth cookie in a Server circuit.
+            var auth = await AuthState.GetAuthenticationStateAsync();
+            var uid = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var entity = await ExternalApi.CreateTokenAsync(db, $"position-{Id}", uid, Id);
+            _apiToken = entity.Token;
+        }
+        catch (Exception ex)
+        {
+            _apiTokenError = ex.Message;
+        }
+    }
+
+    private async Task CreateCv()
+    {
+        _creating = true;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var (cvId, error) = await CvFactory.CreateAsync(db, _userId!, Id, _isRecruiterOrAdmin);
+            if (cvId is not null)
+            {
+                Nav.NavigateTo($"cv/{cvId}");
+            }
+            else
+            {
+                _createError = error;
+                StateHasChanged();
+            }
+        }
+        finally { _creating = false; }
+    }
+
+    private void OpenEditor(int id) { _editId = id; _editorOpen = true; }
+
+    private async Task OnEditorClosed() { _editorOpen = false; Nav.NavigateTo(Nav.Uri, forceLoad: true); }
+
+    private static string OpLabel(FilterOperator op) => op switch
+    {
+        FilterOperator.Equals => "=", FilterOperator.NotEquals => "≠",
+        FilterOperator.GreaterThan => ">", FilterOperator.GreaterOrEqual => "≥",
+        FilterOperator.LessThan => "<", FilterOperator.LessOrEqual => "≤",
+        FilterOperator.IsTrue => "is true", FilterOperator.IsFalse => "is false",
+        _ => op.ToString(),
+    };
+
+    private sealed record AttrLineDto(string Name, string Category, bool Required, string? Section);
+    private sealed record FilterLineDto(string Name, FilterOperator Operator, string Value);
+
+    private sealed class PosDetailsDto
+    {
+        public int Id { get; set; }
+        public string Title { get; set; } = "";
+        public string? ShortDescription { get; set; }
+        public string? Company { get; set; }
+        public string? Level { get; set; }
+        public PositionAccess Access { get; set; }
+        public List<AttrLineDto> Attributes { get; set; } = [];
+        public List<FilterLineDto> Filters { get; set; } = [];
+    }
+
+    private sealed class CvRow
+    {
+        public int Id { get; set; }
+        public string? CandidateName { get; set; }
+        public int Likes { get; set; }
+        public int ProjectCount { get; set; }
+        public DateTimeOffset? PublishedAt { get; set; }
+    }
+}

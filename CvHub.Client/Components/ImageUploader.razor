@@ -1,0 +1,73 @@
+@rendermode InteractiveAuto
+@using Microsoft.JSInterop
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div id="@_zoneId" class="rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-600 p-3 text-center transition-colors @(_dragging ? "border-brand-500 bg-brand-50 dark:bg-brand-900/20" : "")">
+    @if (!string.IsNullOrEmpty(Url))
+    {
+        <img src="@Url" class="mx-auto h-24 rounded-lg object-cover" alt="uploaded image" />
+        <div class="mt-1 flex justify-center gap-3 text-xs">
+            <label class="cursor-pointer text-brand-600 hover:underline">
+                <input type="file" accept="image/*" id="@_inputId" class="hidden" />
+                Replace
+            </label>
+            <button type="button" @onclick="Clear" class="text-rose-500 hover:underline">Remove</button>
+        </div>
+    }
+    else
+    {
+        <label class="cursor-pointer text-sm text-slate-500">
+            <input type="file" accept="image/*" id="@_inputId" class="hidden" />
+            <span class="font-medium text-brand-600 dark:text-brand-400">Drop an image here</span> or click to choose
+        </label>
+    }
+    @if (_busy)
+    {
+        <div class="mt-1 text-xs text-slate-400">Uploading…</div>
+    }
+    @if (_error)
+    {
+        <div class="mt-1 text-xs text-rose-500">Upload failed — try again.</div>
+    }
+</div>
+
+@code {
+    [Parameter] public string? Url { get; set; }
+    [Parameter] public EventCallback<string?> UrlChanged { get; set; }
+
+    private bool _dragging;
+    private bool _busy;
+    private bool _error;
+    private DotNetObjectReference<ImageUploader>? _ref;
+    private string _zoneId = $"zone-{Guid.NewGuid():N}";
+    private string _inputId = $"file-{Guid.NewGuid():N}";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _ref = DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("cvUpload.init", _ref, _inputId);
+        await JS.InvokeVoidAsync("cvUpload.wireDrop", _zoneId, _ref);
+    }
+
+    [JSInvokable] public Task Uploading() { _busy = true; _error = false; StateHasChanged(); return Task.CompletedTask; }
+
+    [JSInvokable] public void Dragging(bool value) { _dragging = value; StateHasChanged(); }
+
+    [JSInvokable] public async Task Uploaded(string? url)
+    {
+        _busy = false;
+        _error = url is null;
+        if (url is not null) await UrlChanged.InvokeAsync(url);
+        StateHasChanged();
+    }
+
+    private async Task Clear() => await UrlChanged.InvokeAsync(null);
+
+    public async ValueTask DisposeAsync()
+    {
+        _ref?.Dispose();
+        await Task.CompletedTask;
+    }
+}

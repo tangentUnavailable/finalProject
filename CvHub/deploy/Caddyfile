@@ -1,0 +1,26 @@
+# Managed by Buffy — TLS enabled, HTTP deliberately NOT redirected yet.
+#
+# The plain-HTTP block is explicit (http:// scheme) so Caddy does not attach its
+# automatic HTTP->HTTPS redirect. That keeps the site reachable even if TLS is
+# unhealthy. Once HTTPS is confirmed working, drop the http:// block to turn the
+# redirect back on.
+http://cvms.tangent.website {
+	encode zstd gzip
+	reverse_proxy localhost:5001 {
+		flush_interval -1
+	}
+}
+
+cvms.tangent.website {
+	encode zstd gzip
+	reverse_proxy localhost:5001 {
+		flush_interval -1
+	}
+}
+
+:80 {
+	encode zstd gzip
+	reverse_proxy localhost:5001 {
+		flush_interval -1
+	}
+}

@@ -1,0 +1,44 @@
+@using CvHub.Shared
+
+<div>
+    @if (Field.IsEmpty)
+    {
+        <span class="text-sm font-medium text-rose-600 dark:text-rose-400" title="Empty value">@I18n.T("cv.empty")</span>
+    }
+    else if (Field.Type == AttributeType.String)
+    {
+        <span class="text-sm">@Field.StringValue</span>
+    }
+    else if (Field.Type == AttributeType.Text)
+    {
+        <MarkdownDisplay Markdown="@Field.TextValue" />
+    }
+    else if (Field.Type == AttributeType.Image)
+    {
+        <img src="@Field.ImageUrl" class="h-24 rounded-lg object-cover" alt="@Field.Name" />
+    }
+    else if (Field.Type == AttributeType.Numeric)
+    {
+        <span class="text-sm">@Field.NumericValue</span>
+    }
+    else if (Field.Type == AttributeType.Date)
+    {
+        <span class="text-sm">@Field.DateValue?.ToString("d MMM yyyy")</span>
+    }
+    else if (Field.Type == AttributeType.Period)
+    {
+        <span class="text-sm">@(Field.PeriodStart?.ToString("MMM yyyy") ?? "?") — @(Field.PeriodEnd?.ToString("MMM yyyy") ?? "present")</span>
+    }
+    else if (Field.Type == AttributeType.Boolean)
+    {
+        <span class="text-sm">@(Field.BoolValue ? "✔" : "—")</span>
+    }
+    else if (Field.Type == AttributeType.OneOfMany)
+    {
+        <span class="text-sm">@Field.OptionValue</span>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public CvFieldDto Field { get; set; } = default!;
+}

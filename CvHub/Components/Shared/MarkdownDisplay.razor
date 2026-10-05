@@ -1,0 +1,7 @@
+@using CvHub.Infrastructure
+<div class="md-content @Class">@((MarkupString)MarkdownRenderer.Render(Markdown))</div>
+
+@code {
+    [Parameter] public string? Markdown { get; set; }
+    [Parameter] public string? Class { get; set; }
+}

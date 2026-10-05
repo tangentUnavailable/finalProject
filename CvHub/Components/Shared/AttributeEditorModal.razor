@@ -1,0 +1,174 @@
+@using CvHub.Shared
+@using CvHub.Features.Attributes
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div class="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-800 p-5 shadow-2xl">
+        <div class="mb-4 flex items-center justify-between">
+            <h3 class="text-lg font-semibold">@(AttributeId is null ? I18n.T("attr.create") : I18n.T("attr.edit"))</h3>
+            <button type="button" @onclick="Close" class="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+
+        <label class="mb-3 block text-sm">
+            <span class="mb-1 block font-medium">Name (globally unique) *</span>
+            <input type="text" @bind="_name" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5" />
+        </label>
+
+        <label class="mb-3 block text-sm">
+            <span class="mb-1 block font-medium">Category</span>
+            <select @bind="_category" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5">
+                @foreach (var c in AttributeCategories.All)
+                {
+                    <option value="@c">@c</option>
+                }
+            </select>
+        </label>
+
+        <label class="mb-3 block text-sm">
+            <span class="mb-1 block font-medium">Description</span>
+            <textarea rows="2" @bind="_description" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5"></textarea>
+        </label>
+
+        <label class="mb-3 block text-sm">
+            <span class="mb-1 block font-medium">Data type</span>
+            <select @bind="_type" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5">
+                @foreach (AttributeType t in Enum.GetValues<AttributeType>())
+                {
+                    <option value="@t">@TypeLabel(t)</option>
+                }
+            </select>
+        </label>
+
+        @if (_type == AttributeType.OneOfMany)
+        {
+            <label class="mb-3 block text-sm">
+                <span class="mb-1 block font-medium">Options (one per line)</span>
+                <textarea rows="4" @bind="_options" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5"></textarea>
+            </label>
+        }
+
+        @if (_type is AttributeType.String or AttributeType.Text)
+        {
+            <div class="mb-3 grid grid-cols-2 gap-3">
+                <label class="block text-sm">
+                    <span class="mb-1 block font-medium">Min length</span>
+                    <input type="number" min="0" @bind="_minLength" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5" />
+                </label>
+                <label class="block text-sm">
+                    <span class="mb-1 block font-medium">Max length</span>
+                    <input type="number" min="0" @bind="_maxLength" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5" />
+                </label>
+            </div>
+            <label class="mb-3 block text-sm">
+                <span class="mb-1 block font-medium">Regex validator (optional)</span>
+                <input type="text" @bind="_regex" placeholder="e.g. ^[A-Z]{2}-\d{4}$" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 font-mono text-xs" />
+            </label>
+        }
+        @if (_type == AttributeType.Numeric)
+        {
+            <div class="mb-3 grid grid-cols-2 gap-3">
+                <label class="block text-sm">
+                    <span class="mb-1 block font-medium">Min value</span>
+                    <input type="number" step="any" @bind="_minValue" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5" />
+                </label>
+                <label class="block text-sm">
+                    <span class="mb-1 block font-medium">Max value</span>
+                    <input type="number" step="any" @bind="_maxValue" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5" />
+                </label>
+            </div>
+        }
+
+        @if (_error is not null)
+        {
+            <div class="mb-3 rounded-lg bg-rose-50 dark:bg-rose-900/30 px-3 py-2 text-sm text-rose-600 dark:text-rose-400">@_error</div>
+        }
+
+        <div class="flex justify-end gap-2">
+            <button type="button" @onclick="Close" class="rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button>
+            <button type="button" @onclick="Save" disabled="@_busy" class="rounded-lg bg-brand-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50">Save</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public int? AttributeId { get; set; }
+    [Parameter] public EventCallback OnClosed { get; set; }
+
+    private string _name = "";
+    private string _category = "Other";
+    private string? _description;
+    private AttributeType _type = AttributeType.String;
+    private string? _options;
+    private int? _minLength;
+    private int? _maxLength;
+    private string? _regex;
+    private double? _minValue;
+    private double? _maxValue;
+    private bool _busy;
+    private string? _error;
+    private uint? _version;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AttributeId is int id)
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var r = await db.Attributes.Where(a => a.Id == id)
+                .Select(a => new { a.Name, a.Category, a.Type, a.MinLength, a.MaxLength, a.RegexPattern, a.MinValue, a.MaxValue, Version = (uint?)db.Entry(a).Property("xmin").CurrentValue })
+                .FirstOrDefaultAsync();
+            if (r is not null)
+            {
+                _name = r.Name; _category = r.Category; _type = r.Type; _version = r.Version;
+                _minLength = r.MinLength; _maxLength = r.MaxLength; _regex = r.RegexPattern;
+                _minValue = r.MinValue; _maxValue = r.MaxValue;
+            }
+        }
+    }
+
+    private async Task Save()
+    {
+        if (string.IsNullOrWhiteSpace(_name)) { _error = "Name is required."; return; }
+        if (!string.IsNullOrWhiteSpace(_regex))
+        {
+            try { _ = new System.Text.RegularExpressions.Regex(_regex); }
+            catch (ArgumentException) { _error = "Invalid regular expression."; return; }
+        }
+        _busy = true; _error = null;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var body = new AttrUpsert(_name.Trim(), _category, _description, _type, _options,
+                AttributeId is null ? null : _version,
+                _minLength, _maxLength, string.IsNullOrWhiteSpace(_regex) ? null : _regex.Trim(), _minValue, _maxValue);
+            bool ok;
+            string? error;
+            if (AttributeId is null)
+            {
+                (ok, error, _) = await AttributeCommands.CreateAsync(db, body);
+            }
+            else
+            {
+                (ok, error, _) = await AttributeCommands.UpdateAsync(db, AttributeId.Value, body);
+            }
+            if (ok) await OnClosed.InvokeAsync();
+            else _error = error;
+        }
+        finally { _busy = false; }
+    }
+
+    private void Close() => _ = OnClosed.InvokeAsync();
+
+    private static string TypeLabel(AttributeType t) => t switch
+    {
+        AttributeType.String => "String (single line)",
+        AttributeType.Text => "Text (Markdown)",
+        AttributeType.Image => "Image",
+        AttributeType.Numeric => "Numeric",
+        AttributeType.Date => "Date",
+        AttributeType.Period => "Period (date range)",
+        AttributeType.Boolean => "Boolean (checkbox)",
+        AttributeType.OneOfMany => "One of many (dropdown)",
+        _ => t.ToString(),
+    };
+}

@@ -1,0 +1,1051 @@
+@rendermode InteractiveServer
+@using CvHub.Client.Components
+@page "/profile"
+@page "/profile/u/{UserId}"
+@attribute [Authorize]
+@using CvHub.Shared
+@using CvHub.Features.Profile
+@using CvHub.Features.Badges
+@using CvHub.Services
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.WebUtilities
+@using System.Text
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+@inject SalesforceService Salesforce
+@inject UserManager<ApplicationUser> UserManager
+@inject IEmailSender<ApplicationUser> EmailSender
+@implements IDisposable
+
+<PageTitle>My Profile — CvHub</PageTitle>
+
+<h1 class="mb-6 text-2xl font-bold">@I18n.T("nav.profile")</h1>
+
+@if (_conflictMsg is not null)
+{
+    <div class="mb-4 rounded-lg bg-amber-50 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+        @_conflictMsg
+    </div>
+}
+
+@if (_loading)
+{
+    <div class="text-slate-400">@I18n.T("common.loading")</div>
+}
+else
+{
+    <div class="flex items-center gap-3 mb-4">
+        @if (!string.IsNullOrEmpty(_photoUrl))
+        {
+            <img src="@_photoUrl" class="h-16 w-16 rounded-full object-cover" alt="photo" />
+        }
+        <div>
+            <div class="text-lg font-semibold">@_firstName @_lastName</div>
+            <div class="text-xs text-slate-400">@_email</div>
+        </div>
+        <span class="ml-auto inline-flex items-center gap-1.5 rounded-full bg-emerald-50 dark:bg-emerald-900/30 px-2.5 py-1 text-xs text-emerald-700 dark:text-emerald-400">
+            <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+            @(_saving ? I18n.T("profile.saving") : I18n.T("profile.autosave"))
+        </span>
+    </div>
+
+    @if (_isCandidateView)
+    {
+        <div class="mb-2 flex gap-2 border-b border-slate-200 dark:border-slate-700">
+            @foreach (var (key, label) in new[] { ("me", "profile.me"), ("info", "profile.info"), ("projects", "profile.projects"), ("cvs", "profile.cvs") })
+            {
+                var active = _tab == key;
+                <button type="button" @onclick="() => _tab = key"
+                        class="px-3 py-2 text-sm font-medium border-b-2 -mb-px @(active ? "border-brand-600 text-brand-600 dark:text-brand-400" : "border-transparent text-slate-500 hover:text-slate-700")">
+                    @I18n.T(label)
+                </button>
+            }
+        </div>
+    }
+    else
+    {
+        <p class="mb-4 text-sm text-slate-500 dark:text-slate-400">
+            @I18n.T("profile.recruiternote")
+        </p>
+    }
+
+    @if (!_isCandidateView || _tab == "me")
+    {
+        <section class="mb-8">
+            <div class="mb-2 flex items-center justify-between gap-3">
+                <h2 class="text-sm font-bold uppercase tracking-wide text-slate-400">@I18n.T("profile.account")</h2>
+                @* Entry point to /Account/Manage (email, password, 2FA, passkeys, delete). It lives
+                   here rather than in the header to keep the header uncluttered. *@
+                <a href="/Account/Manage" class="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-semibold text-brand-600 transition-colors hover:bg-slate-100 dark:text-brand-400 dark:hover:bg-slate-700">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.7 7.7 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.019-.398-1.111-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
+                    @I18n.T("account.manage.title")
+                </a>
+            </div>
+            <dl class="max-w-full w-full divide-y divide-slate-100 dark:divide-slate-700/60 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+                <div class="flex items-center justify-between gap-3 px-4 py-2.5">
+                    <div class="min-w-0">
+                        <dt class="text-xs uppercase tracking-wide text-slate-400">@I18n.T("profile.username")</dt>
+                        <dd class="flex items-center gap-2">
+                            <span class="min-w-0 truncate text-sm font-medium">@_email</span>
+                            @if (!_isOwnProfile)
+                            {
+                                @if (_emailConfirmed)
+                                {
+                                    <span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 text-xs text-emerald-700 dark:text-emerald-400">
+                                        <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span> @I18n.T("profile.email.confirmed")
+                                    </span>
+                                }
+                            }
+                            else if (!_emailConfirmed)
+                            {
+                                <span class="inline-flex items-center gap-1 rounded-full bg-amber-50 dark:bg-amber-900/30 px-2 py-0.5 text-xs text-amber-700 dark:text-amber-400">
+                                    <span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span> @I18n.T("profile.email.unconfirmed")
+                                </span>
+                                <button type="button" disabled="@_emailSending"
+                                        title="@I18n.T("profile.email.resend.title")"
+                                        class="shrink-0 rounded-lg px-1 text-xs font-medium text-amber-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60 dark:text-amber-400"
+                                        @onclick="ResendConfirmationAsync">
+                                    @(_emailSending ? I18n.T("profile.email.resend.working") : I18n.T("profile.email.resend"))
+                                </button>
+                            }
+                            else
+                            {
+                                <span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 text-xs text-emerald-700 dark:text-emerald-400" title="@I18n.T("profile.email.confirmed")">
+                                    <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                                </span>
+                            }
+                        </dd>
+                        @if (_emailSendMsg is not null)
+                        {
+                            <p class="mt-1 text-xs @(_emailSendOk ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400")" role="status">@_emailSendMsg</p>
+                        }
+                    </div>
+                </div>                <div class="flex items-center justify-between gap-3 px-4 py-2.5">
+                    @if (_phoneEdit)
+                    {
+                            <div class="min-w-0 flex-1">
+                            <dt class="text-xs uppercase tracking-wide text-slate-400">@I18n.T("profile.phone")</dt>
+                            <dd class="mt-1 flex items-center gap-2">
+                                <input type="tel" aria-label="@I18n.T("profile.phone")" @bind="_phone" class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-sm" />
+                                <button type="button" @onclick="SavePhone" class="shrink-0 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700">@I18n.T("common.save")</button>
+                                <button type="button" @onclick="CancelPhone" class="shrink-0 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700">@I18n.T("common.cancel")</button>
+                            </dd>
+                            @if (_phoneMsg is not null)
+                            {
+                                <p class="mt-1 text-xs text-emerald-600 dark:text-emerald-400" role="status">@_phoneMsg</p>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="min-w-0">
+                            <dt class="text-xs uppercase tracking-wide text-slate-400">@I18n.T("profile.phone")</dt>
+                            <dd class="truncate text-sm font-medium">@(_phone ?? "—")</dd>
+                        </div>
+                        <button type="button" @onclick='() => { _phoneEdit = true; _phoneMsg = null; }' title="@I18n.T("profile.edit")" class="shrink-0 rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-brand-600 dark:hover:bg-slate-700 dark:hover:text-brand-400">
+                            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"/></svg>
+                        </button>
+                    }
+                </div>
+                <div class="flex items-center justify-between gap-3 px-4 py-2.5">
+                    @* CRM sync is self-service: the profile owner, or an admin acting on
+                       someone else's profile. Recruiters viewing a candidate must not see
+                       this row - the server would reject the sync with 403 anyway. *@
+                    @if (_canSyncCrm)
+                    {
+                        <div class="min-w-0">
+                            <dt class="text-xs uppercase tracking-wide text-slate-400">@I18n.T("crm.title")</dt>
+                            <dd class="truncate text-sm font-medium">
+                                @if (_crmSyncedAt is not null)
+                                {
+                                    <span class="text-emerald-600 dark:text-emerald-400">@I18n.T("crm.synced") @(_crmSyncedAt?.ToString("MMM d, yyyy HH:mm"))</span>
+                                }
+                                else
+                                {
+                                    <span class="text-slate-400">@I18n.T("crm.never")</span>
+                                }
+                            </dd>
+                        </div>
+                        <button type="button" @onclick="OpenCrmDialogAsync" class="shrink-0 rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-xs font-semibold hover:border-brand-500 hover:text-brand-600 dark:hover:border-brand-400">
+                            @I18n.T("crm.action")
+                        </button>
+                    }
+                </div>
+            </dl>
+        </section>
+
+        <section>
+            <h2 class="mb-2 text-sm font-bold uppercase tracking-wide text-slate-400">@I18n.T("profile.me")</h2>
+            <dl class="max-w-full w-full divide-y divide-slate-100 dark:divide-slate-700/60 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+                @foreach (var f in _me_fields.Where(f => f.AttributeId != _aboutId))
+                {
+                    var field = f;
+                    <div class="px-4 py-2.5">
+                        @if (_editingFields.Contains(field.AttributeId))
+                        {
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="min-w-0 flex-1"><AttributeEditor Field="field" ValueChanged="OnAutoSave" /></div>
+                                <button type="button" @onclick='() => EndEdit(field.AttributeId)' class="mt-1 shrink-0 text-sm font-semibold text-brand-600 hover:underline dark:text-brand-400">@I18n.T("common.done")</button>
+                            </div>
+                        }
+                        else if (field.Type == AttributeType.Image)
+                        {
+                            <div class="flex items-center justify-between gap-3">
+                                <div class="flex min-w-0 items-center gap-3">
+                                    @if (!string.IsNullOrEmpty(field.ImageUrl))
+                                    {
+                                        <img src="@field.ImageUrl" class="h-10 w-10 rounded-full object-cover" alt="@field.Name" />
+                                        <div class="min-w-0">
+                                            <dt class="text-xs uppercase tracking-wide text-slate-400">@field.Name</dt>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="min-w-0">
+                                            <dt class="text-xs uppercase tracking-wide text-slate-400">@field.Name</dt>
+                                            <dd class="truncate text-sm font-medium text-slate-400">—</dd>
+                                        </div>
+                                    }
+                                </div>
+                                <button type="button" @onclick='() => _editingFields.Add(field.AttributeId)' title="@I18n.T("profile.edit")" class="shrink-0 rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-brand-600 dark:hover:bg-slate-700 dark:hover:text-brand-400">
+                                    <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"/></svg>
+                                </button>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="flex items-center justify-between gap-3">
+                                <div class="min-w-0">
+                                    <dt class="text-xs uppercase tracking-wide text-slate-400">@field.Name</dt>
+                                    <dd class="truncate text-sm font-medium">@DisplayValue(field)</dd>
+                                </div>
+                                <button type="button" @onclick='() => _editingFields.Add(field.AttributeId)' title="@I18n.T("profile.edit")" class="shrink-0 rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-brand-600 dark:hover:bg-slate-700 dark:hover:text-brand-400">
+                                    <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"/></svg>
+                                </button>
+                            </div>
+                        }
+                    </div>
+                }
+            </dl>
+
+            @{
+                var about = _me_fields.FirstOrDefault(f => f.AttributeId == _aboutId);
+            }
+            @if (about is not null)
+            {
+                <div class="mt-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
+                    @if (_editingFields.Contains(about.AttributeId))
+                    {
+                        <div class="flex items-start justify-between gap-3">
+                            <div class="min-w-0 flex-1"><AttributeEditor Field="about" ValueChanged="OnAutoSave" /></div>
+                            <button type="button" @onclick='() => EndEdit(about.AttributeId)' class="mt-1 shrink-0 text-sm font-semibold text-brand-600 hover:underline dark:text-brand-400">@I18n.T("common.done")</button>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="flex items-start justify-between gap-3">
+                            <div class="min-w-0 flex-1">
+                                <dt class="text-xs uppercase tracking-wide text-slate-400">@about.Name</dt>
+                                <dd class="mt-1 text-sm">
+                                    @if (string.IsNullOrWhiteSpace(about.TextValue))
+                                    {
+                                        <span class="text-slate-400">—</span>
+                                    }
+                                    else
+                                    {
+                                        <MarkdownDisplay Markdown="@about.TextValue" />
+                                    }
+                                </dd>
+                            </div>
+                            <button type="button" @onclick='() => _editingFields.Add(about.AttributeId)' title="@I18n.T("profile.edit")" class="shrink-0 rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-brand-600 dark:hover:bg-slate-700 dark:hover:text-brand-400">
+                                <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"/></svg>
+                            </button>
+                        </div>
+                    }
+                </div>
+            }
+        </section>
+
+        <section class="mt-8">
+            <div class="mb-2 flex max-w-2xl items-center justify-between">
+                <h2 class="text-sm font-bold uppercase tracking-wide text-slate-400">@I18n.T("badges.title")</h2>
+                @if (_badges.Length > 0)
+                {
+                    <a href="/api/users/@_userId/badges.svg" download class="text-xs font-medium text-brand-600 hover:underline dark:text-brand-400">@I18n.T("badges.download")</a>
+                }
+            </div>
+            @if (_badges.Length == 0)
+            {
+                <p class="text-sm text-slate-400">@I18n.T("badges.none")</p>
+            }
+            else
+            {
+                <div class="flex flex-wrap gap-3">
+                    @foreach (var b in _badges)
+                    {
+                        <div class="flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2">
+                            <svg class="h-6 w-6 shrink-0" viewBox="0 0 24 24"><path fill="@b.Color" d="@b.SvgPath" /></svg>
+                            <div>
+                                <div class="text-sm font-semibold">@b.Name</div>
+                                <div class="text-xs text-slate-400">@b.Description</div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </section>
+    }
+    else if (_tab == "info")
+    {
+        <div class="mb-3 max-w-md"><AttributePicker OnPicked="OnAttributePicked" /></div>
+        <div class="grid gap-4 sm:grid-cols-2">
+            @foreach (var f in _info_fields)
+            {
+                <div class="relative">
+                    <AttributeEditor Field="f" ValueChanged="OnAutoSave" />
+                    <button type="button" title="Remove from profile" @onclick="() => Unpin(f.AttributeId)"
+                            class="absolute top-0 right-0 text-slate-300 hover:text-rose-500 transition-colors">✕</button>
+                    <div class="h-6"></div>
+                    @* spacer for the remove affordance *@
+                </div>
+            }
+            @if (!_info_fields.Any())
+            {
+                <div class="text-sm text-slate-400">@I18n.T("profile.noAttributes")</div>
+            }
+        </div>
+    }
+    else if (_tab == "projects")
+    {
+        <button type="button" @onclick="NewProject"
+                class="mb-4 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-700">
+            + @I18n.T("profile.newproject")
+        </button>
+        <div class="space-y-4">
+            @foreach (var p in _projects)
+            {
+                <ProjectCard Project="p" OnEdit="() => EditProject(p)" OnDeleted="() => RequestProjectDelete(p)" />
+            }
+            @if (!_projects.Any())
+            {
+                <div class="text-sm text-slate-400">@I18n.T("profile.noProjects")</div>
+            }
+        </div>
+    }
+    else if (_isCandidateView)
+    {
+        <div class="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+            <div class="mb-3 flex items-center gap-3 rounded-xl border border-rose-200 dark:border-rose-900 bg-rose-50 dark:bg-rose-900/20 px-4 py-2 @(_selectedCvs.Count > 0 ? "" : "hidden")">
+                <span class="text-sm font-medium">@_selectedCvs.Count @I18n.T("common.selected")</span>
+                <button type="button" @onclick="DeleteSelectedCvs" class="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-rose-700">🗑️ @I18n.T("common.delete")</button>
+            </div>
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-slate-200 dark:border-slate-700 text-left text-xs uppercase tracking-wide text-slate-500">
+                        <th class="w-10 px-3 py-2"><input type="checkbox" checked="@(_cvs.Count > 0 && _cvs.All(c => _selectedCvs.Contains(c.CvId)))" @onchange="ToggleAllCvs" class="h-4 w-4 rounded accent-brand-600" /></th>
+                        <th class="px-4 py-2">@I18n.T("table.title")</th>
+                        <th class="px-4 py-2">@I18n.T("table.status")</th>
+                        <th class="px-4 py-2">@I18n.T("table.updated")</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var c in _cvs)
+                    {
+                        <tr class="border-b border-slate-100 dark:border-slate-700/50 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-700/30">
+                            <td class="px-3 py-2">
+                                <input type="checkbox" checked="@_selectedCvs.Contains(c.CvId)" @onchange="e => ToggleCvSelection(c.CvId, e)" class="h-4 w-4 rounded accent-brand-600" />
+                            </td>
+                            <td class="px-4 py-2">
+                                @if (c.Hidden)
+                                {
+                                    <span class="text-slate-400">@c.PositionTitle — @I18n.T("cv.hidden")</span>
+                                }
+                                else
+                                {
+                                    <a class="font-medium text-brand-600 dark:text-brand-400 hover:underline" href="cv/@c.CvId">@c.PositionTitle</a>
+                                    @if (c.Status == CvStatus.Draft)
+                                    {
+                                        <span class="ml-2 rounded bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 text-xs text-amber-700 dark:text-amber-400">@I18n.T("cv.draft")</span>
+                                    }
+                                }
+                            </td>
+                            <td class="px-4 py-2">@(c.Status == CvStatus.Published ? I18n.T("cv.published") : I18n.T("cv.draft"))</td>
+                            <td class="px-4 py-2 text-slate-500">@c.CreatedAt.ToString("MMM d, yyyy")</td>
+            </tr>
+                    }
+                    @if (!_cvs.Any())
+                    {
+                        <tr><td colspan="4" class="px-4 py-6 text-center text-slate-400">@I18n.T("profile.cvempty")</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    @if (_projectEdit is not null)
+    {
+        <ProjectEditor Project="_projectEdit" TagsAll="_allTags" OnSaved="SaveProject" OnCancel="() => _projectEdit = null" />
+    }
+
+    @if (_pendingCvDelete is not null || _pendingProjectDelete is not null)
+    {
+        var targetName = _pendingCvDelete?.PositionTitle ?? _pendingProjectDelete?.Name ?? "";
+        if (_pendingCvDelete is not null && _selectedCvs.Count > 1) targetName = $"{_selectedCvs.Count} CVs";
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div class="w-full max-w-md rounded-2xl bg-white dark:bg-slate-800 p-5 shadow-2xl">
+                <div class="mb-4 flex items-center justify-between">
+                    <h3 class="text-lg font-semibold">@(_pendingCvDelete is not null ? I18n.T("cv.delete") : I18n.T("profile.deleteProject"))</h3>
+                    <button type="button" @onclick="CancelPendingDelete" class="text-slate-400 hover:text-slate-600">✕</button>
+                </div>
+                <p class="text-sm text-slate-500 dark:text-slate-400">
+                    @I18n.T("profile.deleteWarning") <span class="font-medium text-slate-700 dark:text-slate-200">@targetName</span>. @I18n.T("profile.deleteIrreversible")
+                </p>
+                <div class="mt-4 flex justify-end gap-2">
+                    <button type="button" @onclick="CancelPendingDelete" class="rounded-lg border border-slate-300 dark:border-slate-600 px-4 py-2 text-sm font-semibold hover:bg-slate-100 dark:hover:bg-slate-700">@I18n.T("common.cancel")</button>
+                    <button type="button" @onclick="ConfirmPendingDelete" class="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700">@I18n.T("common.delete")</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_crmOpen)
+    {
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div class="w-full max-w-md rounded-2xl bg-white dark:bg-slate-800 p-5 shadow-2xl">
+                <div class="mb-4 flex items-center justify-between">
+                    <h3 class="text-lg font-semibold">@I18n.T("crm.dialogtitle")</h3>
+                    <button type="button" @onclick="() => _crmOpen = false" class="text-slate-400 hover:text-slate-600">✕</button>
+                </div>
+
+                @if (_crmError is not null)
+                {
+                    <div class="mb-3 rounded-lg bg-rose-50 dark:bg-rose-900/30 border border-rose-300 dark:border-rose-700 px-3 py-2 text-xs text-rose-700 dark:text-rose-400">@_crmError</div>
+                }
+                @if (_crmSuccess is not null)
+                {
+                    <div class="mb-3 rounded-lg bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-300 dark:border-emerald-700 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400">
+                        @(_crmSuccess)
+                    </div>
+                }@if (!Salesforce.IsConfigured)
+                {
+                    <p class="mb-4 text-sm text-slate-500 dark:text-slate-400">@I18n.T("crm.notconfigured")</p>
+                }
+                else if (!_crmConnected && !Salesforce.CentralReady)
+                {
+                    <p class="mb-4 text-sm text-slate-500 dark:text-slate-400">@I18n.T("crm.connectnote")</p>
+                    <div class="flex justify-end">
+                        <a href="@_crmConnectUrl" class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700">@I18n.T("crm.connect")</a>
+                    </div>
+                }
+                else
+                {
+                    <div class="mb-4 rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-700/60 text-sm">
+                        <div class="flex justify-between gap-3 px-3 py-2"><span class="text-slate-400">@I18n.T("profile.name")</span><span class="font-medium truncate">@(_firstName) @_lastName</span></div>
+                        <div class="flex justify-between gap-3 px-3 py-2"><span class="text-slate-400">@I18n.T("account.email.label")</span><span class="font-medium truncate">@_email</span></div>
+                        <div class="flex justify-between gap-3 px-3 py-2"><span class="text-slate-400">@I18n.T("profile.phone")</span><span class="font-medium truncate">@(_phone ?? "—")</span></div>
+                    </div>
+
+                    <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400">@I18n.T("crm.interests")</label>
+                    <input type="text" @bind="_crmInterests" placeholder="e.g. .NET, React, DevOps" class="mb-3 w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-sm" />
+
+                    <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400">@I18n.T("crm.notes")</label>
+                    <textarea @bind="_crmNotes" rows="3" class="mb-3 w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-sm"></textarea>
+
+                    <label class="mb-4 flex items-center gap-2 text-sm">
+                        <input type="checkbox" @bind="_crmNewsletter" class="h-4 w-4 rounded accent-brand-600" />
+                        @I18n.T("crm.newsletter")
+                    </label>
+
+                    <div class="flex justify-end gap-2">
+                        <button type="button" @onclick="() => _crmOpen = false" class="rounded-lg border border-slate-300 dark:border-slate-600 px-4 py-2 text-sm font-semibold hover:bg-slate-100 dark:hover:bg-slate-700">@I18n.T("common.cancel")</button>
+                        <button type="button" @onclick="SyncCrm" disabled="@_crmBusy" class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50">
+                            @(_crmBusy ? I18n.T("crm.syncing") : I18n.T("crm.sync"))
+                        </button>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public string UserId { get; set; } = "";
+
+    [SupplyParameterFromQuery(Name = "crm")]
+    public string? CrmStatus { get; set; }
+
+    private bool _loading = true;
+    private bool _saving;
+    private string _tab = "me";
+    private string _userId = "";
+    private bool _isCandidateView = true;
+    private bool _isOwnProfile;
+    private bool _isAdminView;
+    /// <summary>The CRM sync action is offered to the profile owner and to admins only.</summary>
+    private bool _canSyncCrm => _isOwnProfile || _isAdminView;
+    private string _email = "";
+    private bool _emailConfirmed;
+    private bool _emailSending;
+    private bool _emailSendOk;
+    private string? _emailSendMsg;
+    private string? _photoUrl;
+    private string _firstName = "";
+    private string _lastName = "";
+    private List<CvFieldDto> _me_fields = [];
+    private List<CvFieldDto> _info_fields = [];
+    private int _aboutId;
+    private List<ProjectDto> _projects = [];
+    private List<string> _allTags = [];
+    private List<CvRow> _cvs = [];
+    private HashSet<int> _selectedCvs = [];
+    private ProjectDto? _projectEdit;
+    private System.Timers.Timer? _timer;
+    private HashSet<int> _dirty = [];
+    private string? _conflictMsg;
+    private string? _phone;
+    private string? _phoneStored;
+    private bool _phoneEdit;
+    private string? _phoneMsg;
+    private HashSet<int> _editingFields = [];
+    private Badge[] _badges = [];
+    private CvRow? _pendingCvDelete;
+    private ProjectDto? _pendingProjectDelete;
+
+    // Salesforce CRM sync state.
+    private bool _crmOpen;
+    private bool _crmConnected;
+    private bool _crmBusy;
+    private DateTimeOffset? _crmSyncedAt;
+    private string? _crmError;
+    private string? _crmSuccess;
+    private bool _crmNewsletter;
+    private string? _crmInterests;
+    private string? _crmNotes;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        _userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        _email = auth.User.Identity?.Name ?? "";
+
+        // Recruiters don't have candidate profiles (spec): no Info/Projects/CVs — only their own Me section.
+        _isCandidateView = !auth.User.IsInRole("Recruiter") || auth.User.IsInRole("Admin");
+
+        // Admins act as the owner of any profile (spec: "Admin can open a candidate's page ... as the owner").
+        if (!string.IsNullOrEmpty(UserId) && auth.User.IsInRole("Admin"))
+        {
+            _userId = UserId;
+        }
+        else if (!string.IsNullOrEmpty(UserId))
+        {
+            Nav.NavigateTo("/profile");
+            return;
+        }
+        await LoadAsync();
+
+        // CRM link state of the profile OWNER (self, or the user an admin is viewing).
+        var isOwnProfile = string.IsNullOrEmpty(UserId) || _userId == auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        _isOwnProfile = isOwnProfile;
+        _isAdminView = auth.User.IsAdmin();
+        // Only load CRM state for someone allowed to act on it — a recruiter viewing a
+        // candidate must not learn whether that candidate has synced.
+        if (!string.IsNullOrEmpty(_userId) && _canSyncCrm)
+        {
+            await using var db2 = await DbFactory.CreateDbContextAsync();
+            var crm = await db2.CrmLinks.AsNoTracking().FirstOrDefaultAsync(l => l.UserId == _userId);
+            // Central-org mode: syncs run with the app's own Salesforce credentials, so every
+            // user is "connected" from the start — the per-user OAuth screen must never appear.
+            _crmConnected = Salesforce.CentralReady || (crm is not null && !string.IsNullOrEmpty(crm.RefreshToken));
+            _crmSyncedAt = crm?.SyncedAt;
+            if (crm is not null) _crmNewsletter = crm.NewsletterOptIn;
+        }
+        if (CrmStatus == "connected") _crmSuccess = I18n.T("crm.connected");
+        else if (CrmStatus == "error") _crmError = I18n.T("crm.connectfailed");
+
+        if (_isCandidateView)
+        {
+            _timer = new(6000) { AutoReset = true };
+            _timer.Elapsed += async (_, _) => await InvokeAsync(SaveTick);
+            _timer.Start();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var isRecruiter = auth.User.IsInRole("Recruiter") && !auth.User.IsInRole("Admin");
+        var isAdmin = auth.User.IsInRole("Admin");
+
+        var builtins = await db.Attributes.Where(a => a.IsBuiltIn).OrderBy(a => a.Id).ToListAsync();
+        _aboutId = builtins.FirstOrDefault(a => a.Name == BuiltInAttributeNames.About)?.Id ?? 0;
+
+        // Show the profile owner's email (differs from the viewer when an admin edits someone else).
+        var ownerData = await db.Users.Where(u => u.Id == _userId).Select(u => new { u.Email, u.EmailConfirmed }).FirstOrDefaultAsync();
+        if (!string.IsNullOrEmpty(ownerData?.Email)) _email = ownerData.Email;
+        _emailConfirmed = ownerData?.EmailConfirmed ?? false;
+
+        var owner = await db.Users.Where(u => u.Id == _userId).Select(u => new { u.PhoneNumber }).FirstOrDefaultAsync();
+        _phone ??= owner?.PhoneNumber;
+        _phoneStored = _phone;
+
+        var pinned = await db.ProfileAttributes.AsNoTracking().Where(pa => pa.UserId == _userId)
+            .Join(db.Attributes, pa => pa.AttributeId, a => a.Id, (pa, a) => new { pa.SortOrder, Attr = a })
+            .OrderBy(x => x.SortOrder).ToListAsync();
+
+        var attrIds = builtins.Select(a => a.Id).Concat(pinned.Select(x => x.Attr.Id)).Distinct().ToList();
+        // All values are needed: access rules may reference attributes not pinned to the profile.
+        var values = await db.AttributeValues.Where(v => v.UserId == _userId).ToDictionaryAsync(v => v.AttributeId);
+
+        var paById = builtins.ToDictionary(a => a.Id);
+        foreach (var p in pinned) paById[p.Attr.Id] = p.Attr;
+
+        CvFieldDto Field(AttributeDef a)
+        {
+            values.TryGetValue(a.Id, out var v);
+            return CvComposer.ToField(new PositionAttribute { Attribute = a, AttributeId = a.Id, Required = a.IsBuiltIn && a.Name != BuiltInAttributeNames.Headline && a.Name != BuiltInAttributeNames.About }, v, CvComposer.Xmin(db, v));
+        }
+
+        _me_fields = builtins.Where(a => a.Name != BuiltInAttributeNames.About).Select(Field).ToList();
+        _photoUrl = _me_fields.FirstOrDefault(f => f.Name == BuiltInAttributeNames.Photo)?.ImageUrl;
+        _firstName = _me_fields.FirstOrDefault(f => f.Name == BuiltInAttributeNames.FirstName)?.StringValue ?? "";
+        _lastName = _me_fields.FirstOrDefault(f => f.Name == BuiltInAttributeNames.LastName)?.StringValue ?? "";
+        _info_fields = pinned.Where(x => !x.Attr.IsBuiltIn).Select(x => Field(x.Attr)).ToList();
+
+        _projects = await db.Projects.Where(p => p.UserId == _userId).OrderBy(p => p.SortOrder)
+            .Select(p => new ProjectDto(p.Id, p.Name, p.PeriodStart, p.PeriodEnd, p.Description, p.Tags.Select(t => t.Tag.Name).ToArray())).ToListAsync();
+
+        _allTags = await db.Tags.OrderBy(t => t.Name).Select(t => t.Name).ToListAsync();
+
+        // Badges panel (optional req #3): computed live from activity counts.
+        _badges = await BadgeService.EarnedAsync(db, _userId);
+
+        // Load the candidate's CVs first, then fetch only the positions those CVs belong to
+        // (instead of scanning every position in the catalog).
+        _cvs = await db.Cvs.Where(c => c.UserId == _userId).OrderByDescending(c => c.CreatedAt)
+            .Select(c => new CvRow { CvId = c.Id, PositionId = c.PositionId, Status = c.Status, CreatedAt = c.CreatedAt })
+            .ToListAsync();
+
+        var posIds = _cvs.Select(c => c.PositionId).ToHashSet();
+        var positionTitles = await db.Positions.AsNoTracking().Where(p => posIds.Contains(p.Id))
+            .ToDictionaryAsync(p => p.Id, p => p.Title);
+        var accessByPosition = await db.Positions.AsNoTracking().Include(p => p.Filters).ThenInclude(f => f.Attribute)
+            .Where(p => posIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id, p => p);
+
+        foreach (var c in _cvs)
+        {
+            c.PositionTitle = positionTitles.GetValueOrDefault(c.PositionId) ?? "?";
+            if (!accessByPosition.TryGetValue(c.PositionId, out var pos)) { c.Hidden = true; continue; }
+            c.Hidden = !AccessRules.HasAccess(pos, values, isAdmin || isRecruiter);
+        }
+        _loading = false;
+    }
+
+    // ---------- Salesforce CRM sync ----------
+    // Target of the sync: the profile owner (self, or the user an admin is viewing).
+    private string _crmConnectUrl => string.IsNullOrEmpty(UserId)
+        ? "/api/crm/salesforce/connect"
+        : $"/api/crm/salesforce/connect?userId={Uri.EscapeDataString(UserId)}";
+
+    private async Task OpenCrmDialogAsync()
+    {
+        _crmOpen = true;
+        _crmError = null;
+        _crmSuccess = CrmStatus == "connected" ? _crmSuccess : null;
+        // Refresh the last-sync stamp straight from the database. (The "interactive"
+        // HttpClient carries no auth cookie inside a Blazor Server circuit, so calling
+        // /api/crm/status from here would always 403 — we use app services directly.)
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var crm = await db.CrmLinks.AsNoTracking().FirstOrDefaultAsync(l => l.UserId == _userId);
+            _crmSyncedAt = crm?.SyncedAt;
+            if (crm is not null) _crmNewsletter = crm.NewsletterOptIn;
+        }
+        catch { /* dialog still opens; sync reports any problem */ }
+        StateHasChanged();
+    }
+
+    private async Task SyncCrm()
+    {
+        _crmBusy = true;
+        _crmError = null;
+        _crmSuccess = null;
+        try
+        {
+            // Call the service in-process: the page runs on the server (InteractiveServer)
+            // and the sync endpoint's HttpContext auth can't be satisfied over the
+            // cookie-less internal HttpClient. SyncAsync targets the central org (client
+            // credentials) or the user's own linked org automatically.
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var result = await Salesforce.SyncAsync(db, _userId, new CrmSyncInput(_crmNewsletter, _crmInterests, _crmNotes));
+            if (result.Success)
+            {
+                _crmSuccess = I18n.T("crm.done");
+                _crmSyncedAt = DateTimeOffset.UtcNow;
+            }
+            else
+            {
+                _crmError = result.Error ?? I18n.T("crm.connectfailed");
+            }
+        }
+        catch (Exception ex)
+        {
+            _crmError = ex.Message;
+        }
+        finally
+        {
+            _crmBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    // ---------- autosave ----------
+    private void OnAutoSave(CvFieldDto f)
+    {
+        // Store the edited value in the field list, then mark dirty for the timer.
+        var idx = _me_fields.FindIndex(x => x.AttributeId == f.AttributeId);
+        if (idx >= 0) _me_fields[idx] = f;
+        else
+        {
+            var iidx = _info_fields.FindIndex(x => x.AttributeId == f.AttributeId);
+            if (iidx >= 0) _info_fields[iidx] = f;
+        }
+        _dirty.Add(f.AttributeId);
+    }
+
+    private async Task SaveTick()
+    {
+        if (!_isCandidateView || _dirty.Count == 0 || _saving) return;
+        _saving = true;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+
+            // Batch-load the dirty set's attribute definitions + existing values up front
+            // (two queries total) so the loop below performs no database access per field.
+            var dirty = _dirty.ToList();
+            var defs = await db.Attributes.Where(a => dirty.Contains(a.Id))
+                .ToDictionaryAsync(a => a.Id);
+            var existing = await db.AttributeValues
+                .Where(v => v.UserId == _userId && dirty.Contains(v.AttributeId))
+                .ToDictionaryAsync(v => v.AttributeId);
+
+            foreach (var attrId in dirty)
+            {
+                var idx = _me_fields.FindIndex(x => x.AttributeId == attrId);
+                var list = _me_fields;
+                if (idx < 0) { idx = _info_fields.FindIndex(x => x.AttributeId == attrId); list = _info_fields; }
+                if (idx < 0) { _dirty.Remove(attrId); continue; }
+                var f = list[idx];
+
+                var def = defs.GetValueOrDefault(attrId);
+                if (def is null) { _dirty.Remove(attrId); continue; }
+
+                // Attribute tuning (optional req #4): never persist values that break the
+                // configured length/regex/range constraints — surface the message instead.
+                var tuningError = AttributeValueRules.Validate(def, f.StringValue, f.TextValue, f.NumericValue);
+                if (tuningError is not null)
+                {
+                    _dirty.Remove(attrId);
+                    _conflictMsg = tuningError;
+                    continue;
+                }
+
+                var value = existing.GetValueOrDefault(attrId);
+                var isNew = value is null;
+
+                // Optimistic locking via xmin: compare the tracked row version to the version the client last saw.
+                if (!isNew && f.Version is uint expected)
+                {
+                    var current = db.Entry(value!).Property("xmin").CurrentValue as uint?;
+                    if (current is uint cur && cur != expected)
+                    {
+                        // Concurrent edit: adopt the known server state for this field.
+                        list[idx] = f with
+                        {
+                            Version = cur,
+                            StringValue = value!.StringValue, TextValue = value.TextValue, ImageUrl = value.ImageUrl,
+                            NumericValue = value.NumericValue, DateValue = value.DateValue,
+                            PeriodStart = value.PeriodStart, PeriodEnd = value.PeriodEnd,
+                            BoolValue = value.BoolValue, OptionValue = value.OptionValue,
+                            IsEmpty = CvComposer.IsEmpty(value, def.Type),
+                        };
+                        _dirty.Remove(attrId);
+                        _conflictMsg = I18n.T("profile.conflict");
+                        continue;
+                    }
+                }
+
+                if (isNew)
+                {
+                    value = new AttributeValue { UserId = _userId, AttributeId = attrId };
+                    db.AttributeValues.Add(value);
+                }
+
+                value!.StringValue = f.StringValue;
+                value.TextValue = f.TextValue;
+                value.ImageUrl = f.ImageUrl;
+                value.NumericValue = f.NumericValue;
+                value.DateValue = f.DateValue;
+                value.PeriodStart = f.PeriodStart;
+                value.PeriodEnd = f.PeriodEnd;
+                value.BoolValue = f.BoolValue;
+                value.OptionValue = f.OptionValue;
+
+                try
+                {
+                    await db.SaveChangesAsync();
+                }
+                catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException)
+                {
+                    _conflictMsg = I18n.T("profile.conflict");
+                    continue;
+                }
+
+                list[idx] = f with { Version = db.Entry(value).Property("xmin").CurrentValue as uint?, IsEmpty = CvComposer.IsEmpty(value, def.Type) };
+                _dirty.Remove(attrId);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Never let the timer thread kill the process.
+            Console.Error.WriteLine($"autosave failed: {ex.Message}");
+        }
+        finally
+        {
+            _saving = false;
+        }
+        StateHasChanged();
+    }
+
+    private sealed record SaveResult(uint? Version, bool Created);
+    private sealed record AttrValueDto(
+        uint? Version, string? StringValue, string? TextValue, string? ImageUrl,
+        double? NumericValue, DateOnly? DateValue, DateOnly? PeriodStart, DateOnly? PeriodEnd,
+        bool? BoolValue, string? OptionValue);
+
+    private async Task OnAttributePicked(int attrId)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        // Idempotent: picking an already-pinned attribute is a no-op (unique index otherwise).
+        var pinned = await db.ProfileAttributes.FirstOrDefaultAsync(pa => pa.UserId == _userId && pa.AttributeId == attrId);
+        if (pinned is null)
+        {
+            var max = await db.ProfileAttributes.Where(pa => pa.UserId == _userId).MaxAsync(pa => (int?)pa.SortOrder) ?? 0;
+            db.ProfileAttributes.Add(new ProfileAttribute { UserId = _userId, AttributeId = attrId, SortOrder = max + 1 });
+            await db.SaveChangesAsync();
+        }
+        await LoadAsync();
+    }
+
+    private async Task Unpin(int attrId)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var pin = await db.ProfileAttributes.FirstOrDefaultAsync(pa => pa.UserId == _userId && pa.AttributeId == attrId);
+        if (pin is not null) { db.ProfileAttributes.Remove(pin); await db.SaveChangesAsync(); }
+        await LoadAsync();
+    }
+
+    private void NewProject() => _projectEdit = new ProjectDto(0, "", null, null, "", []);
+
+    private void CancelPhone() { _phoneEdit = false; _phone = _phoneStored; _phoneMsg = null; }
+
+    /// <summary>
+    /// One-click resend of the email confirmation link. Used to send the user to the
+    /// Manage Email page, which just shows the same unconfirmed state plus a second
+    /// button — now the profile page sends the mail itself and reports the outcome.
+    /// </summary>
+    private async Task ResendConfirmationAsync()
+    {
+        if (_emailSending || _emailConfirmed) return;
+        _emailSending = true;
+        _emailSendMsg = null;
+        try
+        {
+            var user = await UserManager.GetUserAsync((await AuthState.GetAuthenticationStateAsync()).User);
+            var address = user is null ? _email : await UserManager.GetEmailAsync(user);
+            if (user is null || string.IsNullOrWhiteSpace(address))
+            {
+                _emailSendOk = false;
+                _emailSendMsg = I18n.T("profile.email.resend.failed");
+                return;
+            }
+
+            var code = WebEncoders.Base64UrlEncode(
+                Encoding.UTF8.GetBytes(await UserManager.GenerateEmailConfirmationTokenAsync(user)));
+            var callbackUrl = Nav.GetUriWithQueryParameters(
+                Nav.ToAbsoluteUri("/Account/ConfirmEmail").AbsoluteUri,
+                new Dictionary<string, object?> { ["userId"] = user.Id, ["code"] = code });
+
+            await EmailSender.SendConfirmationLinkAsync(user, address, callbackUrl);
+            _emailSendOk = true;
+            _emailSendMsg = I18n.T("profile.email.resend.sent");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"resend confirmation failed: {ex.Message}");
+            _emailSendOk = false;
+            _emailSendMsg = I18n.T("profile.email.resend.failed");
+        }
+        finally
+        {
+            _emailSending = false;
+        }
+    }
+
+    private void EndEdit(int attrId) => _editingFields.Remove(attrId);
+
+    private static string DisplayValue(CvFieldDto f) => f.Type switch
+    {
+        AttributeType.Boolean => f.BoolValue ? "✓" : "—",
+        AttributeType.Numeric => f.NumericValue?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "—",
+        AttributeType.Date => f.DateValue?.ToString("MMM d, yyyy") ?? "—",
+        AttributeType.Period => $"{(f.PeriodStart?.ToString("MMM d, yyyy") ?? "—")} → {(f.PeriodEnd?.ToString("MMM d, yyyy") ?? "—")}",
+        _ => string.IsNullOrWhiteSpace(f.StringValue) && string.IsNullOrWhiteSpace(f.OptionValue) ? "—" : (f.OptionValue ?? f.StringValue)!,
+    };
+
+    private async Task SavePhone()
+    {
+        _phoneMsg = null;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == _userId);
+        if (user is null) return;
+        if (user.PhoneNumber == _phone) return;
+        user.PhoneNumber = _phone;
+        try
+        {
+            await db.SaveChangesAsync();
+            _phoneStored = _phone;
+            _phoneEdit = false;
+            _phoneMsg = I18n.T("profile.phone.saved");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"save phone failed: {ex.Message}");
+            _phoneMsg = I18n.T("profile.phone.invalid");
+        }
+        StateHasChanged();
+    }
+
+    private void EditProject(ProjectDto p) => _projectEdit = p;
+
+    private async Task SaveProject(ProjectDto edited)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var project = edited.Id > 0
+            ? await db.Projects.Include(p => p.Tags).FirstOrDefaultAsync(p => p.Id == edited.Id && p.UserId == _userId)
+            : null;
+        if (project is null)
+        {
+            project = new Project { UserId = _userId, CreatedAt = DateTimeOffset.UtcNow };
+            var max = await db.Projects.Where(p => p.UserId == _userId).MaxAsync(p => (int?)p.SortOrder) ?? 0;
+            project.SortOrder = max + 1;
+            db.Projects.Add(project);
+        }
+        project.Name = edited.Name?.Trim() ?? "";
+        project.PeriodStart = edited.Start;
+        project.PeriodEnd = edited.End;
+        project.Description = edited.Description ?? "";
+
+        var tagNames = (edited.Tags ?? []).Select(t => t.Trim()).Where(t => t.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var existing = await db.Tags.Where(t => tagNames.Contains(t.Name)).ToDictionaryAsync(t => t.Name);
+        db.ProjectTags.RemoveRange(project.Tags);
+        foreach (var name in tagNames)
+        {
+            if (!existing.TryGetValue(name, out var tag))
+            {
+                tag = new Tag { Name = name };
+                db.Tags.Add(tag);
+                existing[name] = tag;
+            }
+            db.ProjectTags.Add(new ProjectTag { Project = project, Tag = tag });
+        }
+        await db.SaveChangesAsync();
+        _projectEdit = null;
+        await LoadAsync();
+    }
+
+    private async Task DeleteProject(ProjectDto p)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var project = await db.Projects.FirstOrDefaultAsync(x => x.Id == p.Id && x.UserId == _userId);
+        if (project is not null)
+        {
+            db.Projects.Remove(project);
+            await db.SaveChangesAsync();
+        }
+        await LoadAsync();
+    }
+
+    private void RequestCvDelete(CvRow c) => _pendingCvDelete = c;
+
+    private void DeleteSelectedCvs()
+    {
+        var first = _cvs.FirstOrDefault(x => _selectedCvs.Contains(x.CvId));
+        if (first is not null) RequestCvDelete(first);
+    }
+
+    private void ToggleAllCvs(ChangeEventArgs e)
+    {
+        _selectedCvs = e.Value is true ? new HashSet<int>(_cvs.Select(x => x.CvId)) : [];
+    }
+
+    private void ToggleCvSelection(int cvId, ChangeEventArgs e)
+    {
+        if (e.Value is true) _selectedCvs.Add(cvId); else _selectedCvs.Remove(cvId);
+    }
+
+    private void RequestProjectDelete(ProjectDto p) => _pendingProjectDelete = p;
+
+    private void CancelPendingDelete()
+    {
+        _pendingCvDelete = null;
+        _pendingProjectDelete = null;
+    }
+
+    private async Task ConfirmPendingDelete()
+    {
+        if (_pendingCvDelete is not null)
+        {
+            _pendingCvDelete = null;
+            var targets = _cvs.Where(c => _selectedCvs.Contains(c.CvId)).ToList();
+            foreach (var c in targets) await DeleteCv(c);
+            _selectedCvs.Clear();
+        }
+        else if (_pendingProjectDelete is not null)
+        {
+            var project = _pendingProjectDelete;
+            _pendingProjectDelete = null;
+            await DeleteProject(project);
+        }
+    }
+
+    private async Task DeleteCv(CvRow c)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var cv = await db.Cvs.FirstOrDefaultAsync(x => x.Id == c.CvId && x.UserId == _userId);
+        if (cv is null) return;
+        db.Cvs.Remove(cv);
+        await db.SaveChangesAsync();
+        _cvs.Remove(c);
+    }
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+        _timer = null;
+    }
+
+    private sealed class CvRow
+    {
+        public int CvId { get; set; }
+        public int PositionId { get; set; }
+        public CvStatus Status { get; set; }
+        public DateTimeOffset CreatedAt { get; set; }
+        public string PositionTitle { get; set; } = "";
+        public bool Hidden { get; set; }
+    }
+}

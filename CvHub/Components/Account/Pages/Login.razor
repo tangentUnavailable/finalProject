@@ -1,0 +1,247 @@
+﻿@page "/Account/Login"
+
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Identity
+@using CvHub.Data
+
+@inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject ILogger<Login> Logger
+@inject NavigationManager NavigationManager
+@inject IdentityRedirectManager RedirectManager
+
+@using CvHub.Shared
+<PageTitle>@I18n.T("account.login.title") — CvHub</PageTitle>
+
+@* Colocated .razor.js is only auto-injected for components with an interactive
+   @rendermode. This page is static SSR, so the <passkey-submit> custom element is
+   never defined without this — the form then POSTs natively with no credential and
+   the server reports "The browser did not provide a passkey". Absolute path so it
+   does not resolve relative to the current route. *@
+<script src="/Components/Account/Shared/PasskeySubmit.razor.js"></script>
+
+<section class="mx-auto flex min-h-[70vh] w-full max-w-md flex-col justify-center py-8">
+    <div class="mb-8 text-center">
+        <span class="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-600 text-xl font-bold text-white shadow-lg shadow-brand-600/25">CV</span>
+        <h1 class="text-2xl font-bold tracking-tight">@I18n.T("account.login.title")</h1>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">@I18n.T("home.subtitle")</p>
+    </div>
+
+    <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8 dark:border-slate-700 dark:bg-slate-800">
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-600 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-400" role="alert">@errorMessage</div>
+        }
+        <EditForm EditContext="editContext" method="post" OnSubmit="LoginUser" FormName="login" class="space-y-4">
+            <DataAnnotationsValidator />
+            <ValidationSummary class="hidden" role="alert" />
+
+            <div>
+                <label for="Input.Email" class="mb-1 block text-sm font-medium">@I18n.T("account.email")</label>
+                <InputText @bind-Value="Input.Email" id="Input.Email" autocomplete="username webauthn" aria-required="true" placeholder="name@example.com"
+                           class="@GetFieldClass(emailError)" />
+                @if (!string.IsNullOrEmpty(emailError))
+                {
+                    <div id="email-error" class="mt-1 block text-xs text-rose-500" role="alert">@emailError</div>
+                }
+                <div data-validation-message><ValidationMessage For="() => Input.Email" class="mt-1 block text-xs text-rose-500" /></div>
+            </div>
+
+            <div>
+                <label for="Input.Password" class="mb-1 block text-sm font-medium">@I18n.T("account.password")</label>
+                <InputText type="password" @bind-Value="Input.Password" id="Input.Password" autocomplete="current-password" aria-required="true" placeholder="••••••••"
+                           class="@GetFieldClass(passwordError)" />
+                @if (!string.IsNullOrEmpty(passwordError))
+                {
+                    <div id="password-error" role="alert" class="mt-1 block text-xs text-rose-500">@passwordError</div>
+                }
+                <div data-validation-message><ValidationMessage For="() => Input.Password" class="mt-1 block text-xs text-rose-500" /></div>
+            </div>
+
+            <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                <InputCheckbox @bind-Value="Input.RememberMe" class="h-4 w-4 rounded accent-brand-600" />
+                @I18n.T("account.login.remember")
+            </label>
+
+            <button type="submit" class="w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2">
+                @I18n.T("account.login.button")
+            </button>
+
+            <div class="flex items-center gap-3 py-1" aria-hidden="true">
+                <span class="h-px flex-1 bg-slate-200 dark:bg-slate-700"></span>
+                <span class="text-xs uppercase tracking-wide text-slate-400">@I18n.T("account.login.or")</span>
+                <span class="h-px flex-1 bg-slate-200 dark:bg-slate-700"></span>
+            </div>
+
+            <PasskeySubmit Operation="PasskeyOperation.Request" Name="Input.Passkey" EmailName="Input.Email"
+                           class="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-center text-sm font-medium text-slate-700 transition-colors hover:border-brand-500 hover:text-brand-600 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200">
+                @I18n.T("account.login.passkey")
+            </PasskeySubmit>
+
+            <ExternalLoginPicker />
+
+            <p class="text-center text-sm text-slate-500 dark:text-slate-400">
+                @I18n.T("account.login.noaccount")
+                <a href="@(NavigationManager.GetUriWithQueryParameters("Account/Register", new Dictionary<string, object?> { ["ReturnUrl"] = ReturnUrl }))"
+                   class="font-semibold text-brand-600 hover:underline dark:text-brand-400">@I18n.T("account.login.register")</a>
+            </p>
+        </EditForm>
+    </div>
+
+    <p class="mt-4 text-center text-xs text-slate-400">
+        <a href="Account/ForgotPassword" class="hover:text-brand-600 hover:underline dark:hover:text-brand-400">@I18n.T("account.login.forgot")</a>
+        <span class="mx-1.5">·</span>
+        <a href="Account/ResendEmailConfirmation" class="hover:text-brand-600 hover:underline dark:hover:text-brand-400">@I18n.T("account.login.resend")</a>
+    </p>
+</section>
+
+@code {
+    private string? errorMessage;
+    private string? emailError;
+    private string? passwordError;
+    private EditContext editContext = default!;
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    #pragma warning disable BL0008
+    [SupplyParameterFromForm]
+    private InputModel Input { get; set; } = new();
+    #pragma warning restore BL0008
+
+    protected override void OnInitialized()
+    {
+        // The form binder assigns null over the property initializer when the POST carries no
+        // Input.* fields at all (an empty body, or anything posting straight at the endpoint).
+        // new EditContext(null) throws, which turned the login page into a 500; restore the
+        // default so such a request renders the normal validation errors instead.
+        Input ??= new InputModel();
+        editContext = new(Input);
+
+        // Surface redirect status messages (e.g. external-login failures) with the
+        // same styling as field validation feedback instead of a StatusMessage banner.
+        var cookie = HttpContext.Request.Cookies[IdentityRedirectManager.StatusCookieName];
+        if (cookie is not null)
+        {
+            errorMessage = cookie;
+            HttpContext.Response.Cookies.Delete(IdentityRedirectManager.StatusCookieName);
+        }
+    }
+
+    public async Task LoginUser()
+    {
+        // Clear previous submission feedback before re-validating.
+        errorMessage = emailError = passwordError = null;
+
+        // Passkey sign-in runs FIRST and bypasses the email/password validation below:
+        // the credential authenticates the user on its own, and both fields are empty
+        // in that flow, so validating them first reported a misleading
+        // "email and password is required" and never reached the credential.
+        if (!string.IsNullOrEmpty(Input.Passkey?.CredentialJson))
+        {
+            var passkeyResult = await SignInManager.PasskeySignInAsync(Input.Passkey.CredentialJson);
+            if (passkeyResult.Succeeded)
+            {
+                RedirectManager.RedirectTo(ReturnUrl);
+            }
+            else if (passkeyResult.RequiresTwoFactor)
+            {
+                RedirectManager.RedirectTo("Account/LoginWith2fa", new() { ["returnUrl"] = ReturnUrl });
+            }
+            else
+            {
+                Logger.LogWarning("Passkey sign-in failed for {Email}.", Input.Email);
+                errorMessage = I18n.T("account.login.error.passkey");
+            }
+            return;
+        }
+
+        // The WebAuthn call itself failed (cancelled, no authenticator, unsupported
+        // browser). Surface what the browser reported rather than the field errors.
+        if (!string.IsNullOrEmpty(Input.Passkey?.Error))
+        {
+            errorMessage = Input.Passkey.Error;
+            return;
+        }
+
+        // A passkey was requested but the browser returned neither a credential nor an
+        // error (the modal was dismissed in a way that produces no AbortError, or the
+        // credential never attached to the form). Falling through to editContext.Validate()
+        // here would blame the email and password fields, which the user never filled in
+        // and does not need to — so report the passkey attempt instead.
+        if (Input.Passkey?.Attempted == true)
+        {
+            Logger.LogWarning("Passkey sign-in submitted without a credential or an error.");
+            errorMessage = I18n.T("account.login.error.passkey");
+            return;
+        }
+
+        // This doesn't count as a failed login if the form is invalid.
+        if (!editContext.Validate()) return;
+
+        // Blocked users must not be able to sign in.
+        var candidateUser = await UserManager.FindByEmailAsync(Input.Email);
+        if (candidateUser?.IsBlocked == true)
+        {
+            Logger.LogWarning("Blocked user {Email} attempted to sign in.", Input.Email);
+            errorMessage = I18n.T("account.login.error.blocked");
+            return;
+        }
+
+        var result = await SignInManager.PasswordSignInAsync(Input.Email, Input.Password, Input.RememberMe, lockoutOnFailure: false);
+
+        if (result.Succeeded)
+        {
+            RedirectManager.RedirectTo(ReturnUrl);
+        }
+        else if (result.RequiresTwoFactor)
+        {
+            RedirectManager.RedirectTo("Account/LoginWith2fa", new() { ["returnUrl"] = ReturnUrl, ["rememberMe"] = Input.RememberMe });
+        }
+        else if (result.IsLockedOut)
+        {
+            Logger.LogWarning("User account locked out.");
+            RedirectManager.RedirectTo("Account/Lockout");
+        }
+        else
+        {
+            // Distinguish the two failure modes so feedback appears under the
+            // offending field: unknown email vs. wrong password.
+            if (candidateUser is null)
+            {
+                emailError = I18n.T("account.login.error.noUser");
+            }
+            else
+            { 
+                passwordError = I18n.T("account.login.error.wrongPassword");
+            }
+        }
+    }
+
+    private string GetFieldClass(string? error) =>
+        string.IsNullOrEmpty(error)
+            ? "block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-slate-600 dark:bg-slate-900"
+            : "block w-full rounded-lg border border-rose-400 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-rose-400 dark:border-rose-500 dark:bg-slate-900";
+
+    private sealed class InputModel
+    {
+        [Required]
+        [EmailAddress]
+        public string Email { get; set; } = "";
+
+        [Required]
+        [DataType(DataType.Password)]
+        public string Password { get; set; } = "";
+
+        // Bound from the <passkey-submit> custom element (Input.Passkey.CredentialJson /
+        // Input.Passkey.Error). Not [Required] — it is absent on a normal password login.
+        public PasskeyInputModel Passkey { get; set; } = new();
+
+        [Display(Name = "Remember me")]
+        public bool RememberMe { get; set; }
+    }
+}
