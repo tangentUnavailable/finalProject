@@ -56,3 +56,6 @@ __pycache__/
 
 # Documents (never commit)
 docs/
+
+# Poolside agent config (local only)
+.poolside/

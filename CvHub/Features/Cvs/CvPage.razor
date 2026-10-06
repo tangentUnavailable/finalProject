@@ -38,11 +38,11 @@ else
                 <span class="@(_liked ? "text-amber-500" : "text-slate-400")">👍</span> @_likeCount
             </button>
         }
-        @* Downloads the PDF the server renders (QuestPDF) — not a print-out of this page.
-           target=_blank keeps Blazor's enhanced navigation from swallowing the request. *@
-        <a href="@PdfUrl" target="_blank" rel="noopener" title="@I18n.T("cv.print")"
+        @* Print the server-rendered PDF. cvPrint (app.js) opens it in the viewer;
+           the href is the JS-off fallback that streams the same PDF as a download. *@
+        <a id="cv-print-btn" href="@PdfUrl" target="_blank" rel="noopener" title="@I18n.T("cv.print")"
            class="no-print rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-sm hover:border-brand-500 hover:text-brand-600">
-            ⬇️ @I18n.T("cv.print")
+            🖨️ @I18n.T("cv.print")
         </a>
     </div>
 

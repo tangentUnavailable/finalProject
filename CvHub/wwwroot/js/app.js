@@ -68,3 +68,45 @@ window.cvPrefs = {
     }
 };
 cvPrefs.init();
+
+// ---------- PDF print ----------
+// Opens the server PDF (/api/cvs/{id}/pdf) in the PDF viewer and prints it instead of
+// screenshotting the CV page. Falls back to a download on any failure.
+window.cvPrint = {
+    printPdf(url) {
+        fetch(url, { credentials: 'include' })
+            .then(r => {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.blob();
+            })
+            .then(blob => {
+                var objUrl = URL.createObjectURL(blob);
+                var w = window.open(objUrl, '_blank', 'noopener,noreferrer');
+                if (!w) { window.location.href = url; return; } // popup blocked
+                var fire = function () { try { w.focus(); w.print(); } catch (e) { /* viewer not ready */ } };
+                if (w.document.readyState === 'complete') setTimeout(fire, 300);
+                else w.addEventListener('load', function () { setTimeout(fire, 300); });
+                w.addEventListener('afterprint', function () { setTimeout(function () { URL.revokeObjectURL(objUrl); }, 1000); });
+            })
+            .catch(function (e) { console.error('[cvPrint] ' + e); window.location.href = url; });
+    },
+    init() {
+        var btn = document.getElementById('cv-print-btn');
+        if (!btn) return;
+        var url = btn.getAttribute('href') || '';
+        var print = function () { window.cvPrint.printPdf(url); };
+        btn.addEventListener('click', function (e) {
+            e.preventDefault();
+            print();
+        });
+        // Ctrl+P / Cmd+P on a CV page -> the proper PDF, not an HTML screenshot.
+        document.addEventListener('keydown', function (e) {
+            if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'p') {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                print();
+            }
+        }, true);
+    }
+};
+cvPrint.init();
