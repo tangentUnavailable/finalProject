@@ -45,8 +45,6 @@ publish/
 # Logs
 *.log
 
-# Freebuff agent metadata (local only)
-.freebuff/
 __pycache__/
 *.pyc
 
@@ -57,5 +55,3 @@ __pycache__/
 # Documents (never commit)
 docs/
 
-# Poolside agent config (local only)
-.poolside/
