@@ -52,6 +52,4 @@ __pycache__/
 .power-automate-*.json
 *.clientsecret
 
-# Documents (never commit)
-docs/
 
